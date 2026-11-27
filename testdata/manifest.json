@@ -114,7 +114,7 @@
       "name": "real/bbb-1080p30-10s-h265.mp4",
       "kind": "download",
       "quick": false,
-      "purpose": "Real HEVC encode from a third-party encoder (30 fps, Main, B-frames), first 10 s of Big Buck Bunny.",
+      "purpose": "Real HEVC encode from a third-party encoder (30 fps, Main, B-frames), first 10 s of Big Buck Bunny. Long GOP: keyframes only at 0 and 8.33 s, so an RTSP reader may wait up to ~8 s for its first decodable frame.",
       "source": {
         "title": "Big Buck Bunny 1080p 10s 5MB (H.265)",
         "author": "Blender Foundation; encoded by test-videos.co.uk",

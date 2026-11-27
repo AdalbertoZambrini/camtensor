@@ -23,6 +23,7 @@
 # Keep this script behaviourally identical to fetch-test-media.ps1.
 
 set -euo pipefail
+export LC_ALL=C
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 MANIFEST="$ROOT/testdata/manifest.json"
@@ -240,7 +241,7 @@ while IFS=$'\x1e' read -r -u 3 name kind quick size sha urls args codec profile 
   dest="$MEDIA_DIR/$name"
   echo "[$total] $name"
   mkdir -p "$(dirname "$dest")"
-  status=0
+  status=0 verified=0
   if [[ $VERIFY_ONLY == 1 ]]; then
     [[ -f "$dest" ]] || { echo "  missing"; status=1; }
   elif [[ "$kind" == "download" ]]; then
@@ -248,7 +249,7 @@ while IFS=$'\x1e' read -r -u 3 name kind quick size sha urls args codec profile 
   elif [[ "$kind" == "ffmpeg" ]]; then
     if [[ $FORCE == 0 && -f "$dest" ]] && recipe_matches "$name" "$args" &&
        verify "$dest" "$codec" "$profile" "$width" "$height" "$fps" "$pix" "$bframes" "$duration" "$frames" "$gop"; then
-      echo "  up to date"
+      echo "  up to date"; verified=1
     else
       echo "  encoding..."
       generate "$name" "$args" || status=1
@@ -257,7 +258,7 @@ while IFS=$'\x1e' read -r -u 3 name kind quick size sha urls args codec profile 
     echo "  unknown kind '$kind'"; status=1
   fi
   if [[ $status == 0 ]]; then
-    if verify "$dest" "$codec" "$profile" "$width" "$height" "$fps" "$pix" "$bframes" "$duration" "$frames" "$gop"; then
+    if [[ $verified == 1 ]] || verify "$dest" "$codec" "$profile" "$width" "$height" "$fps" "$pix" "$bframes" "$duration" "$frames" "$gop"; then
       echo "  OK  $VERIFY_SUMMARY"
     else
       echo "  FAIL $VERIFY_SUMMARY"; status=1
