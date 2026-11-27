@@ -118,7 +118,7 @@ pub fn split_jpegs(b: &[u8]) -> Vec<Vec<u8>> {
         let mut j = i + 2;
         let mut end = None;
         // Marker segments until SOS, then entropy-coded data until EOI.
-        while j + 4 <= b.len() {
+        while j + 2 <= b.len() {
             if b[j] != 0xff {
                 j += 1;
                 continue;
@@ -130,6 +130,7 @@ pub fn split_jpegs(b: &[u8]) -> Vec<Vec<u8>> {
                     break;
                 }
                 0x00 | 0xff | 0xd0..=0xd7 | 0x01 => j += if m == 0xff { 1 } else { 2 },
+                _ if j + 4 > b.len() => break,
                 _ => {
                     let len = u16::from_be_bytes([b[j + 2], b[j + 3]]) as usize;
                     j += 2 + len;

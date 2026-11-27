@@ -172,6 +172,7 @@ fn generate(cli: &Path, spec: &Spec) -> std::result::Result<Media, String> {
             run(enc.args(["-f", "mjpeg"]).arg(&out))?;
             let data = std::fs::read(&out).map_err(|e| e.to_string())?;
             let jpegs = annexb::split_jpegs(&data);
+            assert_eq!(jpegs.len(), spec.frames as usize, "{}: JPEGs found", spec.name);
             let (w, h) = jpeg_size(&jpegs[0]).ok_or("no SOF")?;
             let pkts = jpegs
                 .into_iter()
@@ -208,6 +209,7 @@ fn generate(cli: &Path, spec: &Spec) -> std::result::Result<Media, String> {
             let aus = annexb::split_access_units(&data, std);
             // A mismatch is a bug in the test splitter, not a missing tool.
             assert_eq!(aus.len(), pts.len(), "{}: AUs found vs container packets", spec.name);
+            assert_eq!(pts.len(), spec.frames as usize, "{}: encoded packets", spec.name);
             let pkts = aus
                 .into_iter()
                 .zip(pts)
