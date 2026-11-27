@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 280" width="880" height="280" font-family="system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif" role="img" aria-labelledby="ttl desc">
+<title id="ttl">camtensor vs OpenCV, 16 cameras 1080p25 H.264</title>
+<desc id="desc">OpenCV + NumPy: 156 images/s, 762% CPU; camtensor · CPU decode: 389 images/s, 454% CPU; camtensor · NVDEC: 400 images/s, 25% CPU</desc>
+<rect width="880" height="280" rx="8" fill="#fcfcfb"/>
+<rect x="16" y="101.0" width="10" height="10" rx="2" fill="#2a78d6"/>
+<text x="32" y="110.5" font-size="13" fill="#0b0b0b">OpenCV + NumPy</text>
+<rect x="16" y="145.0" width="10" height="10" rx="2" fill="#eb6834"/>
+<text x="32" y="154.5" font-size="13" fill="#0b0b0b">camtensor · CPU decode</text>
+<rect x="16" y="189.0" width="10" height="10" rx="2" fill="#1baf7a"/>
+<text x="32" y="198.5" font-size="13" fill="#0b0b0b">camtensor · NVDEC</text>
+<text x="200" y="50" font-size="14" font-weight="600" fill="#0b0b0b">Images per second</text>
+<text x="200" y="68" font-size="12" fill="#52514e">higher is better</text>
+<line x1="200.0" y1="80" x2="200.0" y2="216" stroke="#e6e5e0" stroke-width="1"/>
+<text x="200.0" y="232" font-size="11" fill="#8a8984" text-anchor="middle">0</text>
+<line x1="257.7" y1="80" x2="257.7" y2="216" stroke="#e6e5e0" stroke-width="1"/>
+<text x="257.7" y="232" font-size="11" fill="#8a8984" text-anchor="middle">100</text>
+<line x1="315.4" y1="80" x2="315.4" y2="216" stroke="#e6e5e0" stroke-width="1"/>
+<text x="315.4" y="232" font-size="11" fill="#8a8984" text-anchor="middle">200</text>
+<line x1="373.1" y1="80" x2="373.1" y2="216" stroke="#e6e5e0" stroke-width="1"/>
+<text x="373.1" y="232" font-size="11" fill="#8a8984" text-anchor="middle">300</text>
+<line x1="430.8" y1="80" x2="430.8" y2="216" stroke="#e6e5e0" stroke-width="1"/>
+<text x="430.8" y="232" font-size="11" fill="#8a8984" text-anchor="middle">400</text>
+<line x1="488.5" y1="80" x2="488.5" y2="216" stroke="#e6e5e0" stroke-width="1"/>
+<text x="488.5" y="232" font-size="11" fill="#8a8984" text-anchor="middle">500</text>
+<path d="M200,95.0 H286.0 Q290.0,95.0 290.0,99.0 V113.0 Q290.0,117.0 286.0,117.0 H200 Z" fill="#2a78d6"/>
+<path d="M200,139.0 H420.4230769230769 Q424.4230769230769,139.0 424.4230769230769,143.0 V157.0 Q424.4230769230769,161.0 420.4230769230769,161.0 H200 Z" fill="#eb6834"/>
+<path d="M200,183.0 H426.7692307692308 Q430.7692307692308,183.0 430.7692307692308,187.0 V201.0 Q430.7692307692308,205.0 426.7692307692308,205.0 H200 Z" fill="#1baf7a"/>
+<line x1="430.8" y1="80" x2="430.8" y2="216" stroke="#52514e" stroke-width="1.5" stroke-dasharray="4 3"/>
+<text x="434.8" y="82" font-size="11" fill="#52514e">real time (16 × 25 fps)</text>
+<text x="296.0" y="110.5" font-size="13" font-weight="600" fill="#0b0b0b" stroke="#fcfcfb" stroke-width="4" paint-order="stroke" stroke-linejoin="round">156</text>
+<text x="430.4" y="154.5" font-size="13" font-weight="600" fill="#0b0b0b" stroke="#fcfcfb" stroke-width="4" paint-order="stroke" stroke-linejoin="round">389</text>
+<text x="436.8" y="198.5" font-size="13" font-weight="600" fill="#0b0b0b" stroke="#fcfcfb" stroke-width="4" paint-order="stroke" stroke-linejoin="round">400</text>
+<text x="560" y="50" font-size="14" font-weight="600" fill="#0b0b0b">CPU (100% = one core)</text>
+<text x="560" y="68" font-size="12" fill="#52514e">lower is better</text>
+<line x1="560.0" y1="80" x2="560.0" y2="216" stroke="#e6e5e0" stroke-width="1"/>
+<text x="560.0" y="232" font-size="11" fill="#8a8984" text-anchor="middle">0%</text>
+<line x1="635.0" y1="80" x2="635.0" y2="216" stroke="#e6e5e0" stroke-width="1"/>
+<text x="635.0" y="232" font-size="11" fill="#8a8984" text-anchor="middle">250%</text>
+<line x1="710.0" y1="80" x2="710.0" y2="216" stroke="#e6e5e0" stroke-width="1"/>
+<text x="710.0" y="232" font-size="11" fill="#8a8984" text-anchor="middle">500%</text>
+<line x1="785.0" y1="80" x2="785.0" y2="216" stroke="#e6e5e0" stroke-width="1"/>
+<text x="785.0" y="232" font-size="11" fill="#8a8984" text-anchor="middle">750%</text>
+<line x1="860.0" y1="80" x2="860.0" y2="216" stroke="#e6e5e0" stroke-width="1"/>
+<text x="860.0" y="232" font-size="11" fill="#8a8984" text-anchor="middle">1000%</text>
+<path d="M560,95.0 H784.6 Q788.6,95.0 788.6,99.0 V113.0 Q788.6,117.0 784.6,117.0 H560 Z" fill="#2a78d6"/>
+<path d="M560,139.0 H692.2 Q696.2,139.0 696.2,143.0 V157.0 Q696.2,161.0 692.2,161.0 H560 Z" fill="#eb6834"/>
+<path d="M560,183.0 H563.75 Q567.5,183.0 567.5,186.75 V201.25 Q567.5,205.0 563.75,205.0 H560 Z" fill="#1baf7a"/>
+<text x="794.6" y="110.5" font-size="13" font-weight="600" fill="#0b0b0b" stroke="#fcfcfb" stroke-width="4" paint-order="stroke" stroke-linejoin="round">762%</text>
+<text x="702.2" y="154.5" font-size="13" font-weight="600" fill="#0b0b0b" stroke="#fcfcfb" stroke-width="4" paint-order="stroke" stroke-linejoin="round">454%</text>
+<text x="573.5" y="198.5" font-size="13" font-weight="600" fill="#0b0b0b" stroke="#fcfcfb" stroke-width="4" paint-order="stroke" stroke-linejoin="round">25%</text>
+<text x="16" y="266" font-size="11" fill="#8a8984">16 RTSP cameras · 1080p25 H.264 · output 640×640 f16 batches · i9-14900HX + RTX 5070 Laptop · details in docs/benchmarks.md</text>
+</svg>

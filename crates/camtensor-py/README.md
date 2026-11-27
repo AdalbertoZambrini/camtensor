@@ -24,12 +24,17 @@ for batch in eng.batches("detector"):
 
 Video inference is often limited by everything that happens *before* the model runs. A typical pipeline decodes on the CPU and touches every full-resolution pixel 4–6 times. It then copies frames across PCIe, and often decodes every frame of cameras that show an empty corridor.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/bench-dark.svg">
+  <img alt="16 RTSP cameras, 1080p25 H.264: OpenCV + NumPy delivers 156 images/s at 762% CPU; camtensor with CPU decode 389 images/s at 454%; camtensor with NVDEC 400 images/s (real time) at 25% CPU" src="docs/assets/bench-light.svg" width="100%">
+</picture>
+
 | 16 × 1080p H.264 cameras | Images/s | CPU | RAM |
 |---|---:|---:|---:|
 | OpenCV `VideoCapture` + NumPy | 156 (cannot keep up) | 762% | 2.4 GB |
 | **camtensor (NVDEC)** | **400 (real time)** | **25%** | **0.5 GB** |
 
-camtensor on NVDEC keeps **48 full-HD cameras in real time on less than one CPU core**. Methodology and more numbers are in [docs/benchmarks.md](docs/benchmarks.md).
+camtensor on NVDEC keeps **48 full-HD cameras in real time on less than one CPU core**. Methodology and more numbers are in [docs/benchmarks.md](docs/benchmarks.md). Validation covers emulated camera faults, PyTorch zero-copy and a 60-minute soak with no memory growth; see [docs/validation.md](docs/validation.md).
 
 ## Features
 
