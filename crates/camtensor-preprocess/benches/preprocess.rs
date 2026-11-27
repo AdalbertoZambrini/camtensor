@@ -59,13 +59,13 @@ fn benches(c: &mut Criterion) {
         (1920, 1080, PixelFormat::Nv12),
         TensorSpec { dtype: DType::F16, ..yolo },
     );
+    full_frame(c, "nv12_1080p_to_640_f32_nchw_letterbox", (1920, 1080, PixelFormat::Nv12), yolo);
     full_frame(
         c,
-        "nv12_1080p_to_640_f32_nchw_letterbox",
-        (1920, 1080, PixelFormat::Nv12),
+        "yuv420p_1080p_to_640_f32_nchw_letterbox",
+        (1920, 1080, PixelFormat::Yuv420p),
         yolo,
     );
-    full_frame(c, "yuv420p_1080p_to_640_f32_nchw_letterbox", (1920, 1080, PixelFormat::Yuv420p), yolo);
     full_frame(
         c,
         "nv12_4k_to_640_f16_nchw_letterbox",
