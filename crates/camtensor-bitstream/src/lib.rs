@@ -8,6 +8,8 @@
 //! * [`h264`] / [`h265`]: NAL unit types, keyframe detection and SPS parsing
 //!   (dimensions, bit depth, chroma format, colour description, frame rate).
 //! * [`jpeg`]: JPEG frame header (SOF) parsing.
+//! * [`gate`]: motion gating that decides which packets to decode, using only
+//!   packet sizes and picture types.
 //! * [`probe_params`]: one-call summary of a stream's parameter sets.
 
 #![forbid(unsafe_code)]
@@ -18,9 +20,12 @@ use camtensor_core::{Codec, ColorSpec};
 
 pub mod annexb;
 pub mod bits;
+pub mod gate;
 pub mod h264;
 pub mod h265;
 pub mod jpeg;
+
+pub use gate::{Gate, GateState, GateStats};
 
 /// Errors produced by the parsers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

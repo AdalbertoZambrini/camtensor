@@ -12,6 +12,8 @@ categories.workspace = true
 
 [dependencies]
 camtensor-core.workspace = true
+
+[dev-dependencies]
 bytes.workspace = true
 
 [lints]
