@@ -1,0 +1,17 @@
+[package]
+name = "camtensor-service"
+description = "Standalone camtensor service: REST control plane and shared-memory data plane"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+camtensor-core.workspace = true
+
+[lints]
+workspace = true

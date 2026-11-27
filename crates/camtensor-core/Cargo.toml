@@ -1,0 +1,20 @@
+[package]
+name = "camtensor-core"
+description = "Core types, configuration and output contract for camtensor"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+bytes.workspace = true
+serde.workspace = true
+serde_norway.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

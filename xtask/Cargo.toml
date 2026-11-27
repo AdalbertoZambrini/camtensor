@@ -1,0 +1,18 @@
+[package]
+publish = false
+name = "xtask"
+description = "Developer tasks for camtensor (PTX generation, test media)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+camtensor-core.workspace = true
+
+[lints]
+workspace = true
