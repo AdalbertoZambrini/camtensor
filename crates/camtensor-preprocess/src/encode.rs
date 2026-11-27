@@ -115,7 +115,7 @@ fn write(
 ) {
     match dtype {
         DType::F32 => {
-            for (d, &v) in dst.chunks_exact_mut(4).zip(src) {
+            for (d, &v) in dst.as_chunks_mut::<4>().0.iter_mut().zip(src) {
                 d.copy_from_slice(&(v * a + b).to_ne_bytes());
             }
         }
@@ -127,7 +127,7 @@ fn write(
             }
             let t16 = &mut f16s[..n];
             t16.convert_from_f32_slice(t32);
-            for (d, h) in dst.chunks_exact_mut(2).zip(t16.iter()) {
+            for (d, h) in dst.as_chunks_mut::<2>().0.iter_mut().zip(t16.iter()) {
                 d.copy_from_slice(&h.to_bits().to_ne_bytes());
             }
         }
@@ -150,7 +150,8 @@ fn interleave(ch: &[Vec<f32>; 3], c: usize, a: &[f32; 3], b: &[f32; 3], out: &mu
             }
         }
         _ => {
-            for (((o, &r), &g), &bl) in out.chunks_exact_mut(3).zip(&ch[0]).zip(&ch[1]).zip(&ch[2])
+            for (((o, &r), &g), &bl) in
+                out.as_chunks_mut::<3>().0.iter_mut().zip(&ch[0]).zip(&ch[1]).zip(&ch[2])
             {
                 o[0] = r * a[0] + b[0];
                 o[1] = g * a[1] + b[1];

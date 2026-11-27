@@ -394,6 +394,24 @@ fn matches_reference_odd_sizes() {
     }
 }
 
+/// Strong downscales take the direct 4-tap gather instead of row blending.
+#[test]
+fn matches_reference_strong_downscale() {
+    let mut rng = Rng(42);
+    for &format in &FORMATS {
+        let (desc, data) = random_frame(&mut rng, 613, 401, format);
+        for (ow, oh) in [(37, 23), (101, 67), (613, 401)] {
+            let mut spec = random_spec(&mut rng, ow, oh);
+            spec.interp = Interp::Bilinear;
+            spec.resize = ResizeMode::Stretch;
+            let m = plan(613, 401, &spec).sampling;
+            let got = decode(&run(&desc, &data, &m, &spec), &spec);
+            let want = reference(&desc, &data, &m, &spec);
+            assert_matches(&got, &want, &spec, &format!("{format:?} -> {ow}x{oh} {spec:?}"));
+        }
+    }
+}
+
 #[test]
 fn rayon_matches_single_threaded() {
     let mut rng = Rng(99);
@@ -424,7 +442,7 @@ fn solid_yuv(format: PixelFormat, color: ColorSpec, yuv: [u8; 3]) -> (FrameDesc,
     data[..luma].fill(yuv[0]);
     match format {
         PixelFormat::Nv12 => {
-            for uv in data[luma..].chunks_exact_mut(2) {
+            for uv in data[luma..].as_chunks_mut::<2>().0 {
                 uv[0] = yuv[1];
                 uv[1] = yuv[2];
             }
@@ -443,7 +461,8 @@ fn solid_yuv_colours() {
     use ColorMatrix::*;
     use ColorRange::*;
     // (range, matrix, yuv, expected rgb (rounded), tolerance)
-    let cases: &[(ColorRange, ColorMatrix, [u8; 3], [f32; 3], f32)] = &[
+    type Case = (ColorRange, ColorMatrix, [u8; 3], [f32; 3], f32);
+    let cases: &[Case] = &[
         (Limited, Bt601, [16, 128, 128], [0.0, 0.0, 0.0], 1e-3),
         (Limited, Bt601, [235, 128, 128], [255.0, 255.0, 255.0], 1e-3),
         (Limited, Bt709, [16, 128, 128], [0.0, 0.0, 0.0], 1e-3),
