@@ -1,7 +1,7 @@
 //! Reference implementation and comparisons.
 
 use camtensor_core::{
-    ARCFACE_112_TEMPLATE, Affine2, ColorMatrix, ColorOrder, ColorRange, ColorSpec, DType, Interp,
+    Affine2, ColorMatrix, ColorOrder, ColorRange, ColorSpec, DType, Interp, KEYPOINT_TEMPLATE_112,
     Layout, Normalize, PixelFormat, PlaneDesc, ResizeMode, Roi, TensorSpec,
 };
 use camtensor_core::{Error, FrameDesc};
@@ -718,7 +718,7 @@ fn gray_output_and_bgr_swap() {
 }
 
 #[test]
-fn arcface_template_landmarks_give_identity_crop() {
+fn template_keypoints_give_identity_crop() {
     let mut rng = Rng(5);
     let (desc, data) =
         frame_with(&mut rng, 112, 112, PixelFormat::Rgb24, ColorSpec::default(), false, |r| {
@@ -728,7 +728,7 @@ fn arcface_template_landmarks_give_identity_crop() {
         normalize: Normalize::NONE,
         ..TensorSpec { width: 112, height: 112, ..TensorSpec::default() }
     };
-    let p = plan_roi(&Roi::Landmarks { points: ARCFACE_112_TEMPLATE }, &spec).unwrap();
+    let p = plan_roi(&Roi::Keypoints { points: KEYPOINT_TEMPLATE_112 }, &spec).unwrap();
     let got = decode(&run(&desc, &data, &p.sampling, &spec), &spec);
     let n = 112 * 112;
     for c in 0..3 {

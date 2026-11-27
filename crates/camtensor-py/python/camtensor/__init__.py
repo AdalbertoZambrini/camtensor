@@ -28,8 +28,8 @@ from ._camtensor import (  # noqa: F401
     version,
 )
 
-#: Reference 5-point template (112x112) used for ArcFace alignment.
-ARCFACE_112_TEMPLATE = (
+#: Default 5-keypoint reference layout (112x112) used by keypoint-aligned crops.
+KEYPOINT_TEMPLATE_112 = (
     (38.2946, 51.6963),
     (73.5318, 51.5014),
     (56.0252, 71.7366),
@@ -38,7 +38,7 @@ ARCFACE_112_TEMPLATE = (
 )
 
 __all__ = [
-    "ARCFACE_112_TEMPLATE",
+    "KEYPOINT_TEMPLATE_112",
     "Batch",
     "BatchIterator",
     "Engine",

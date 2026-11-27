@@ -106,7 +106,7 @@ def test_stream_to_numpy_and_dlpack(device):
             x1, y1, x2, y2 = item.box_to_source([0, 35, 160, 125])
             assert abs(x2 - 640) < 1e-3 and abs(y2 - 360) < 1e-3
             crops = eng.crop(item.frame, [(0, 0, 320, 180), [[100, 100], [140, 100], [120, 120], [105, 140], [135, 140]]],
-                             normalize="arcface", device="cpu")
+                             normalize="symmetric", device="cpu")
             c = crops.numpy()
             assert c.shape == (2, 3, 112, 112) and c.min() >= -1 and c.max() <= 1
             stats = eng.stats()

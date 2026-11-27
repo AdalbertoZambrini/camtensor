@@ -197,7 +197,7 @@ impl Engine {
     }
 
     /// Forces full decoding of a stream for `duration`, bypassing gating
-    /// (e.g. while a tracked face is visible).
+    /// (e.g. while an object of interest is in view).
     pub fn force_active(&self, id: &str, duration: Duration) -> Result<()> {
         let streams = self.inner.streams.lock();
         let h = streams.get(id).ok_or_else(|| Error::NotFound(format!("stream '{id}'")))?;
@@ -226,7 +226,7 @@ impl Engine {
 
     /// Extracts regions of `frame` (from a batch item kept with
     /// `keep_frame: true`) as a tensor `[rois.len(), ...]` formatted by
-    /// `spec` — e.g. aligned 112x112 ArcFace crops from five landmarks.
+    /// `spec`, e.g. 112x112 crops aligned from five keypoints for a second-stage model.
     ///
     /// The tensor is produced on `device` (default: the engine device).
     pub fn crop(

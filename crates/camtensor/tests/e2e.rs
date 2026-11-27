@@ -153,7 +153,7 @@ fn run_pipeline(device: Device) {
     assert_eq!(t.shape(), [1, 64, 64, 3]);
     assert_eq!(t.dtype(), DType::U8);
 
-    // Crops from a kept frame: a box and an ArcFace-aligned landmark crop.
+    // Crops from a kept frame: a box and a keypoint-aligned crop.
     let item = batches.iter().flat_map(|b| b.items()).find(|i| i.valid).unwrap();
     let frame = item.frame.as_ref().unwrap();
     let crop_spec = TensorSpec {
@@ -165,7 +165,7 @@ fn run_pipeline(device: Device) {
     };
     let rois = [
         Roi::Box { x: 10.0, y: 10.0, w: 200.0, h: 200.0 },
-        Roi::Landmarks {
+        Roi::Keypoints {
             points: [
                 [300.0, 200.0],
                 [360.0, 198.0],

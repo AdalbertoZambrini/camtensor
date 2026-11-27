@@ -3,7 +3,7 @@
 //! This crate defines the *output contract* (what a consumer receives), the
 //! configuration schema, the encoded-packet and decoded-frame types that flow
 //! between the ingest, decode and preprocess stages, and small geometry helpers
-//! (letterbox transforms, affine warps, face alignment templates).
+//! (letterbox transforms, affine warps, keypoint alignment).
 //!
 //! It has no heavy dependencies and no `unsafe` code.
 
@@ -28,7 +28,7 @@ pub use frame::{
     ColorMatrix, ColorRange, ColorSpec, DeviceMemory, Frame, FrameData, FrameDesc, PixelFormat,
     PlaneDesc,
 };
-pub use geometry::{ARCFACE_112_TEMPLATE, Affine2, Roi};
+pub use geometry::{Affine2, KEYPOINT_TEMPLATE_112, Roi};
 pub use meta::FrameMeta;
 pub use tensor::{
     ColorOrder, DType, Device, Interp, Layout, Normalize, ResizeMode, TensorDesc, TensorSpec,

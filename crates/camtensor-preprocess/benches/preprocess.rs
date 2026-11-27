@@ -4,7 +4,7 @@ use std::hint::black_box;
 use std::time::Duration;
 
 use camtensor_core::{
-    ARCFACE_112_TEMPLATE, Affine2, ColorSpec, DType, FrameDesc, Normalize, PixelFormat, Roi,
+    Affine2, ColorSpec, DType, FrameDesc, KEYPOINT_TEMPLATE_112, Normalize, PixelFormat, Roi,
     TensorSpec,
 };
 use camtensor_preprocess::{Parallelism, plan, plan_roi, preprocess_into, preprocess_into_with};
@@ -73,7 +73,7 @@ fn benches(c: &mut Criterion) {
         TensorSpec { dtype: DType::F16, ..yolo },
     );
 
-    // 16 ArcFace crops (planning included) from a 1080p NV12 frame.
+    // 16 keypoint-aligned crops (planning included) from a 1080p NV12 frame.
     let (desc, data) = frame(1920, 1080, PixelFormat::Nv12);
     let spec = TensorSpec {
         width: 112,
@@ -81,25 +81,25 @@ fn benches(c: &mut Criterion) {
         normalize: Normalize::SYMMETRIC,
         ..TensorSpec::default()
     };
-    let faces: Vec<Roi> = (0..16)
+    let crops: Vec<Roi> = (0..16)
         .map(|i| {
             let (t, s) = (0.05 * (i as f32 - 8.0), 1.5 + 0.1 * i as f32);
             let (cx, cy) = (200.0 + 100.0 * i as f32, 300.0 + 30.0 * i as f32);
             let rot = Affine2([s * t.cos(), -s * t.sin(), cx, s * t.sin(), s * t.cos(), cy]);
-            let mut points = ARCFACE_112_TEMPLATE;
+            let mut points = KEYPOINT_TEMPLATE_112;
             for p in &mut points {
                 let (x, y) = rot.apply(p[0] - 56.0, p[1] - 56.0);
                 *p = [x, y];
             }
-            Roi::Landmarks { points }
+            Roi::Keypoints { points }
         })
         .collect();
-    let mut out = vec![0u8; spec.image_bytes() * faces.len()];
-    let mut g = c.benchmark_group("arcface_16x112_f32_from_nv12_1080p");
-    g.throughput(Throughput::Elements(faces.len() as u64));
+    let mut out = vec![0u8; spec.image_bytes() * crops.len()];
+    let mut g = c.benchmark_group("keypoint_crops_16x112_f32_from_nv12_1080p");
+    g.throughput(Throughput::Elements(crops.len() as u64));
     g.bench_function("single", |b| {
         b.iter(|| {
-            for (roi, o) in faces.iter().zip(out.chunks_exact_mut(spec.image_bytes())) {
+            for (roi, o) in crops.iter().zip(out.chunks_exact_mut(spec.image_bytes())) {
                 let p = plan_roi(roi, &spec).unwrap();
                 preprocess_into(&desc, black_box(&data), &p.sampling, &spec, o).unwrap();
             }
