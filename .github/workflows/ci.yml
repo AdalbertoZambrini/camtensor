@@ -1,0 +1,122 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  fmt:
+    name: rustfmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --all --check
+
+  clippy:
+    name: clippy (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+
+  test:
+    name: test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install FFmpeg shared libraries and MediaMTX (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg libavcodec-dev
+          ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
+          curl -sL "https://github.com/bluenviron/mediamtx/releases/download/v1.21.4/mediamtx_v1.21.4_linux_${ARCH}.tar.gz" | tar -xz -C /usr/local/bin mediamtx || true
+      - name: Install FFmpeg shared libraries (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $url = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.1-latest-win64-lgpl-shared-8.1.zip"
+          Invoke-WebRequest $url -OutFile ffmpeg.zip
+          Expand-Archive ffmpeg.zip -DestinationPath $env:RUNNER_TEMP
+          $dir = Get-ChildItem $env:RUNNER_TEMP -Directory -Filter "ffmpeg-n8.1*" | Select-Object -First 1
+          "CAMTENSOR_FFMPEG_DIR=$($dir.FullName)\bin" | Out-File -Append $env:GITHUB_ENV
+          "CAMTENSOR_FFMPEG=$($dir.FullName)\bin\ffmpeg.exe" | Out-File -Append $env:GITHUB_ENV
+      - run: cargo test --workspace --all-targets
+      - run: cargo test --workspace --doc
+
+  msrv:
+    name: MSRV build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.96
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check --workspace
+
+  no-default-features:
+    name: CPU-only build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check -p camtensor --no-default-features --features ffmpeg,jpeg
+
+  python:
+    name: python wheel (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build and test wheel
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip maturin numpy pytest
+          maturin build --release -m crates/camtensor-py/Cargo.toml -o dist
+          python -m pip install --no-index --find-links dist camtensor
+          python -m pytest crates/camtensor-py/tests -q
+
+  # GPU tests need a machine with an NVIDIA GPU. Register a self-hosted runner
+  # with the labels below and trigger this workflow manually.
+  gpu:
+    name: GPU tests (self-hosted)
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: [self-hosted, gpu, nvidia]
+    steps:
+      - uses: actions/checkout@v4
+      - run: cargo test --workspace --all-targets -- --include-ignored

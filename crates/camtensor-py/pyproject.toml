@@ -1,0 +1,38 @@
+[build-system]
+requires = ["maturin>=1.7,<2"]
+build-backend = "maturin"
+
+[project]
+name = "camtensor"
+description = "Camera streams to inference-ready tensors: RTSP ingest, NVDEC decode and fused GPU preprocessing"
+readme = "README.md"
+license = { text = "Apache-2.0" }
+requires-python = ">=3.9"
+authors = [{ name = "Adalberto Zambrini" }]
+keywords = ["rtsp", "cuda", "nvdec", "video", "inference", "tensorrt", "pytorch", "computer-vision"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Rust",
+    "Topic :: Multimedia :: Video",
+    "Topic :: Scientific/Engineering :: Image Recognition",
+]
+dynamic = ["version"]
+
+[project.optional-dependencies]
+numpy = ["numpy>=1.22"]
+test = ["numpy>=1.22", "pytest>=7"]
+
+[project.urls]
+Repository = "https://github.com/AdalbertoZambrini/camtensor"
+Documentation = "https://github.com/AdalbertoZambrini/camtensor#readme"
+
+[tool.maturin]
+module-name = "camtensor._camtensor"
+python-source = "python"
+features = ["pyo3/extension-module"]
