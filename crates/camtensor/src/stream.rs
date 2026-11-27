@@ -24,6 +24,9 @@ use crate::stats::{StreamStats, redact_url};
 /// thread. When full, the source drops packets until the next keyframe.
 const PACKET_QUEUE: usize = 96;
 
+/// Frames older than this (receive → decoded) are dropped when gating is on.
+const STALE_FRAME_NS: u64 = 1_000_000_000;
+
 #[derive(Default)]
 struct Counters {
     packets: AtomicU64,
@@ -408,6 +411,15 @@ impl Worker {
         self.win_frames += 1;
         let info = self.take_info(frame.pts);
         let id = self.shared.id.clone();
+
+        // With gating, a decoder that reorders (B-frames) may hold an idle
+        // keyframe until the next one arrives; deliver fresh frames only.
+        if self.shared.cfg.gating.mode != camtensor_core::GatingMode::Always
+            && now_ns().saturating_sub(info.recv_time_ns) > STALE_FRAME_NS
+        {
+            self.shared.counters.skipped_packets.fetch_add(1, Ordering::Relaxed);
+            return;
+        }
 
         // Upload once for every CUDA output when the decoder produced host frames.
         let mut device_frame: Option<Frame> = None;

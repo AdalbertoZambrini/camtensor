@@ -363,7 +363,9 @@ fn bench(a: BenchArgs) -> Result<()> {
         if let Ok(b) = engine.recv("bench", Some(Duration::from_millis(100))) {
             for it in b.items().iter().filter(|i| i.valid) {
                 images += 1;
-                lat.push(it.meta.latency_ms());
+                // Receive -> tensor ready (the camera clock from RTCP is not reliable
+                // for file-based publishers).
+                lat.push(it.meta.ready_time_ns.saturating_sub(it.meta.recv_time_ns) as f64 / 1e6);
             }
         }
         if Instant::now() >= next_sample {

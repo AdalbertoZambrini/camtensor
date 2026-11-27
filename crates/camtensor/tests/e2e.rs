@@ -166,7 +166,15 @@ fn run_pipeline(device: Device) {
     };
     let rois = [
         Roi::Box { x: 10.0, y: 10.0, w: 200.0, h: 200.0 },
-        Roi::Landmarks { points: [[300.0, 200.0], [360.0, 198.0], [330.0, 240.0], [305.0, 280.0], [355.0, 278.0]] },
+        Roi::Landmarks {
+            points: [
+                [300.0, 200.0],
+                [360.0, 198.0],
+                [330.0, 240.0],
+                [305.0, 280.0],
+                [355.0, 278.0],
+            ],
+        },
     ];
     let crops = engine.crop(frame, &rois, &crop_spec, None).unwrap();
     assert_eq!(crops.shape(), [2, 3, 112, 112]);
@@ -177,7 +185,10 @@ fn run_pipeline(device: Device) {
     for s in &st.streams {
         assert!(s.connected, "{s:?}");
         assert!(s.frames > 0);
-        eprintln!("{} {:?} decoder={:?} latency={:.2}ms", s.id, s.codec, s.decoder, s.avg_latency_ms);
+        eprintln!(
+            "{} {:?} decoder={:?} latency={:.2}ms",
+            s.id, s.codec, s.decoder, s.avg_latency_ms
+        );
     }
     assert!(st.to_prometheus().contains("camtensor_stream_frames_total"));
     engine.shutdown();

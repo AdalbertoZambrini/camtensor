@@ -93,6 +93,9 @@ pub struct Gate {
     gop_broken: bool,
     max_gop_packets: usize,
     max_gop_bytes: usize,
+    /// Sliding window of recent non-key packet sizes (H.26x scoring).
+    win: VecDeque<usize>,
+    win_sum: usize,
     /// MJPEG idle rate limiter: next pts due, last pts seen.
     next_emit_pts: Option<i64>,
     last_pts: Option<i64>,
@@ -132,6 +135,8 @@ impl Gate {
             gop_broken: false,
             max_gop_packets: max_packets.max(1),
             max_gop_bytes: max_bytes.max(1),
+            win: VecDeque::new(),
+            win_sum: 0,
             next_emit_pts: None,
             last_pts: None,
         }
@@ -205,7 +210,8 @@ impl Gate {
         match self.state {
             GateState::Warmup => {
                 if !pkt.keyframe {
-                    self.learn(pkt.data.len(), WARMUP_ALPHA);
+                    let size = self.smooth(pkt.data.len());
+                    self.learn(size, WARMUP_ALPHA);
                 }
                 self.emit(pkt, true, out);
                 self.warm_count += 1;
@@ -297,8 +303,23 @@ impl Gate {
 
     /// Scores a packet against the baseline and updates the baseline with
     /// quiet packets. Returns `true` if the packet counts as activity.
+    /// Mean of the last `window` non-key packet sizes (H.26x); the raw size
+    /// for MJPEG, whose frames are independent.
+    fn smooth(&mut self, size: usize) -> usize {
+        if self.codec == Codec::Mjpeg {
+            return size;
+        }
+        let w = self.cfg.window.max(1) as usize;
+        self.win.push_back(size);
+        self.win_sum += size;
+        while self.win.len() > w {
+            self.win_sum -= self.win.pop_front().unwrap_or(0);
+        }
+        self.win_sum / self.win.len()
+    }
+
     fn score(&mut self, size: usize) -> bool {
-        let size = size as f64;
+        let size = self.smooth(size) as f64;
         let Some(base) = self.baseline else {
             self.baseline = Some(size.max(1.0));
             self.stats.last_score = 1.0;
@@ -469,10 +490,38 @@ mod tests {
             mode,
             threshold: 2.0,
             trigger_frames: 2,
+            window: 1,
             hold_ms: 200,
             warmup_frames: 5,
             idle_fps: 1.0,
         }
+    }
+
+    /// B/P alternation (tiny B, larger P) in a static scene must not keep
+    /// the gate active forever once the window smooths it.
+    #[test]
+    fn auto_bp_alternation_returns_to_idle() {
+        let mut c = cfg(GatingMode::Auto);
+        c.window = 8;
+        c.warmup_frames = 50;
+        let mut g = Gate::new(c, Codec::H264);
+        let size = |s: u64, motion: bool| -> usize {
+            let base = if s % 2 == 0 { 90 } else { 1500 };
+            if motion { base * 5 } else { base }
+        };
+        let mut out = Vec::new();
+        let mut states = Vec::new();
+        for s in 0..400u64 {
+            let motion = (150..200).contains(&s);
+            let pk = if s % 50 == 0 { k(s, 20_000) } else { p(s, size(s, motion)) };
+            g.push(pkt(pk, Codec::H264), s * FRAME_NS, &mut out);
+            states.push(g.state());
+        }
+        assert_eq!(states[120], GateState::Idle, "static B/P pattern stays idle");
+        assert_eq!(states[190], GateState::Active, "motion activates");
+        // Motion ends at 200; hold 200 ms (5 packets) plus the window drain.
+        assert_eq!(states[230], GateState::Idle, "returns to idle after motion");
+        assert_eq!(states[399], GateState::Idle);
     }
 
     /// Keyframe every `gop` packets, `size` bytes per P frame, from seq `from`.
