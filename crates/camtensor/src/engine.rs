@@ -250,6 +250,55 @@ impl Engine {
         ctx.crop(&self.inner.backend, &src, &plans, spec, device)
     }
 
+    /// Encodes a kept frame (or a region of it) as a JPEG image.
+    ///
+    /// The frame is converted to RGB by the same fused kernel (on the GPU
+    /// when the frame lives there), copied to the host once and encoded with
+    /// a SIMD JPEG encoder. Typical cost for a 1080p frame: a few
+    /// milliseconds; nothing is decoded again.
+    pub fn snapshot(&self, frame: &Frame, opts: &SnapshotOptions) -> Result<Vec<u8>> {
+        let (fw, fh) = (frame.desc.width as f32, frame.desc.height as f32);
+        let (x, y, w, h) = match opts.region {
+            Some([x, y, w, h]) => {
+                let x0 = x.clamp(0.0, fw);
+                let y0 = y.clamp(0.0, fh);
+                let x1 = (x + w).clamp(0.0, fw);
+                let y1 = (y + h).clamp(0.0, fh);
+                (x0, y0, x1 - x0, y1 - y0)
+            }
+            None => (0.0, 0.0, fw, fh),
+        };
+        if w < 1.0 || h < 1.0 {
+            return Err(Error::config("snapshot: empty region"));
+        }
+        let (ow, oh) = match (opts.width, opts.height) {
+            (Some(ow), Some(oh)) => (ow, oh),
+            (Some(ow), None) => (ow, ((h * ow as f32 / w).round() as u32).max(1)),
+            (None, Some(oh)) => (((w * oh as f32 / h).round() as u32).max(1), oh),
+            (None, None) => (w.round() as u32, h.round() as u32),
+        };
+        if ow > 16384 || oh > 16384 || ow > 65535 || oh > 65535 {
+            return Err(Error::config("snapshot: output too large"));
+        }
+        let spec = TensorSpec {
+            width: ow,
+            height: oh,
+            dtype: camtensor_core::DType::U8,
+            layout: camtensor_core::Layout::Nhwc,
+            color: camtensor_core::ColorOrder::Rgb,
+            resize: camtensor_core::ResizeMode::Stretch,
+            ..Default::default()
+        };
+        let rgb = self.crop(frame, &[Roi::Box { x, y, w, h }], &spec, Some(Device::Cpu))?;
+        let bytes =
+            rgb.as_bytes().ok_or_else(|| Error::decode("snapshot: expected host pixels"))?;
+        let mut out = Vec::with_capacity(bytes.len() / 8);
+        jpeg_encoder::Encoder::new(&mut out, opts.quality.clamp(1, 100))
+            .encode(bytes, ow as u16, oh as u16, jpeg_encoder::ColorType::Rgb)
+            .map_err(|e| Error::decode(format!("jpeg encode: {e}")))?;
+        Ok(out)
+    }
+
     /// Copies a tensor (host or device) into a host buffer of exactly
     /// `tensor.byte_len()` bytes.
     pub fn copy_to_host(&self, tensor: &Tensor, dst: &mut [u8]) -> Result<()> {
@@ -313,6 +362,25 @@ impl Drop for Inner {
         for o in self.outputs.get_mut().values() {
             o.close();
         }
+    }
+}
+
+/// Options for [`Engine::snapshot`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SnapshotOptions {
+    /// Region `[x, y, w, h]` in frame pixels (default: the whole frame).
+    pub region: Option<[f32; 4]>,
+    /// Output width (default: region width, or scaled with `height`).
+    pub width: Option<u32>,
+    /// Output height (default: region height, or scaled with `width`).
+    pub height: Option<u32>,
+    /// JPEG quality, 1..=100.
+    pub quality: u8,
+}
+
+impl Default for SnapshotOptions {
+    fn default() -> Self {
+        Self { region: None, width: None, height: None, quality: 90 }
     }
 }
 

@@ -23,6 +23,7 @@
 //! slice threading. Frame threading adds `threads - 1` frames of decode
 //! latency; pass `threads = 1` for the lowest latency.
 
+pub mod demux;
 mod pool;
 mod sys;
 

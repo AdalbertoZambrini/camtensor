@@ -184,12 +184,14 @@ checksum = "776dfebd015e2d8732c684a2c71003674ccb49457b539b9e82151ba38e96dd7c"
 name = "camtensor"
 version = "0.1.0"
 dependencies = [
+ "bytes",
  "camtensor-bitstream",
  "camtensor-core",
  "camtensor-cuda",
  "camtensor-decode",
  "camtensor-ingest",
  "camtensor-preprocess",
+ "jpeg-encoder",
  "parking_lot",
  "serde",
  "serde_json",
@@ -1041,6 +1043,12 @@ checksum = "875a5a69ac2bab1a891711cf5eccbec1ce0341ea805560dcd90b7a2e925132e8"
 dependencies = [
  "jiff-tzdb",
 ]
+
+[[package]]
+name = "jpeg-encoder"
+version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a0370574b86f7eca156b9f298392b5e69a23f8c86f3f865add60bbc2e79467a6"
 
 [[package]]
 name = "lazy_static"

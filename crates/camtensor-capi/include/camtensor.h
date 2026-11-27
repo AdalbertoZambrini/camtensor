@@ -92,6 +92,12 @@ int ct_batch_tensor(const ct_batch *batch, ct_tensor *out);
 int ct_batch_item(const ct_batch *batch, size_t index, ct_item *out);
 void ct_batch_free(ct_batch *batch);
 
+/* JPEG of the full-resolution frame kept with item `index` (output needs keep_frame).
+ * max_width 0 keeps the original size. Free *out with ct_bytes_free(*out, *out_len). */
+int ct_batch_snapshot(const ct_engine *engine, const ct_batch *batch, size_t index, int quality,
+                      uint32_t max_width, uint8_t **out, size_t *out_len);
+void ct_bytes_free(uint8_t *p, size_t len);
+
 /* Statistics as JSON; free with ct_string_free. */
 char *ct_engine_stats_json(const ct_engine *engine);
 void ct_string_free(char *s);

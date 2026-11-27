@@ -12,7 +12,8 @@ use pyo3::types::{PyDict, PyList, PyTuple};
 
 use camtensor::{
     Backpressure, BatchConfig, DType, Device, Engine as RsEngine, EngineConfig, Error, Frame,
-    GatingConfig, GatingMode, OutputConfig, Roi, StreamConfig, Tensor as RsTensor, TensorSpec,
+    GatingConfig, GatingMode, OutputConfig, PlaybackConfig, Region, Roi, SnapshotOptions,
+    StreamConfig, Tensor as RsTensor, TensorSpec,
 };
 
 mod dlpack;
@@ -142,7 +143,15 @@ impl PyEngine {
     }
 
     /// Start consuming an RTSP stream.
-    #[pyo3(signature = (id, url, outputs, *, gating=None, transport="tcp", decoder=None, username=None, password=None))]
+    /// Start consuming a camera (`rtsp://...`) or a video file (`file:path`).
+    ///
+    /// `region=(x, y, w, h)` in normalised coordinates (0..1) restricts the
+    /// outputs to that part of the frame. For files, `realtime` paces at the
+    /// file's frame rate and `loop` restarts at the end.
+    #[pyo3(signature = (
+        id, url, outputs, *, gating=None, transport="tcp", decoder=None, username=None,
+        password=None, region=None, realtime=true, r#loop=true
+    ))]
     #[allow(clippy::too_many_arguments)]
     fn add_stream(
         &self,
@@ -155,6 +164,9 @@ impl PyEngine {
         decoder: Option<&str>,
         username: Option<String>,
         password: Option<String>,
+        region: Option<(f32, f32, f32, f32)>,
+        realtime: bool,
+        r#loop: bool,
     ) -> PyResult<()> {
         let gating = match gating {
             None => GatingConfig::default(),
@@ -173,6 +185,8 @@ impl PyEngine {
             outputs,
             gating,
             decoder: decoder.map(|d| parse_enum(d, "decoder")).transpose()?,
+            region: region.map(|(x, y, w, h)| Region { x, y, w, h }),
+            playback: PlaybackConfig { realtime, looped: r#loop },
             ..Default::default()
         };
         py.detach(|| self.inner.add_stream(cfg)).map_err(to_py)
@@ -255,6 +269,30 @@ impl PyEngine {
         let device = device.map(|d| d.parse::<Device>()).transpose().map_err(to_py)?;
         let t = py.detach(|| self.inner.crop(&frame.inner, &rois, &spec, device)).map_err(to_py)?;
         Ok(PyTensor { inner: t })
+    }
+
+    /// Encode a kept frame (or a region of it, in pixels) as JPEG bytes.
+    ///
+    /// `width`/`height` resize the result (one of them keeps the aspect
+    /// ratio). Conversion runs on the GPU when the frame lives there.
+    #[pyo3(signature = (frame, *, region=None, width=None, height=None, quality=90))]
+    fn snapshot<'py>(
+        &self,
+        py: Python<'py>,
+        frame: &PyFrame,
+        region: Option<(f32, f32, f32, f32)>,
+        width: Option<u32>,
+        height: Option<u32>,
+        quality: u8,
+    ) -> PyResult<Bound<'py, pyo3::types::PyBytes>> {
+        let opts = SnapshotOptions {
+            region: region.map(|(x, y, w, h)| [x, y, w, h]),
+            width,
+            height,
+            quality,
+        };
+        let jpeg = py.detach(|| self.inner.snapshot(&frame.inner, &opts)).map_err(to_py)?;
+        Ok(pyo3::types::PyBytes::new(py, &jpeg))
     }
 
     /// Runtime statistics as a dict.

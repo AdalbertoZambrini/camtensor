@@ -56,7 +56,7 @@ def still_stream():
     with open(yml, "w") as f:
         f.write(
             f"logLevel: error\napi: no\nrtspAddress: 127.0.0.1:{port}\nrtspTransports: [tcp]\n"
-            "rtmp: no\nhls: no\nwebrtc: no\nsrt: no\npaths:\n  all_others:\n"
+            "rtmp: no\nhls: no\nwebrtc: no\nsrt: no\nmoq: no\npaths:\n  all_others:\n"
         )
     mtx = subprocess.Popen([MEDIAMTX, yml], cwd=tmp, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     url = f"rtsp://127.0.0.1:{port}/still"

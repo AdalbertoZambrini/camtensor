@@ -279,13 +279,81 @@ impl Default for GatingConfig {
     }
 }
 
-/// A camera / RTSP source.
+/// Region of interest in **normalised** frame coordinates (`0..=1`), so it
+/// survives camera resolution changes. Only this part of the frame is fed to
+/// the outputs; `FrameMeta::transform` still maps back to full-frame pixels.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Region {
+    /// Left edge (fraction of the width).
+    pub x: f32,
+    /// Top edge (fraction of the height).
+    pub y: f32,
+    /// Width (fraction of the width).
+    pub w: f32,
+    /// Height (fraction of the height).
+    pub h: f32,
+}
+
+impl Region {
+    /// Validates that the region is non-empty and inside the frame.
+    pub fn validate(&self) -> Result<()> {
+        let ok = [self.x, self.y, self.w, self.h].iter().all(|v| v.is_finite())
+            && self.x >= 0.0
+            && self.y >= 0.0
+            && self.w > 0.0
+            && self.h > 0.0
+            && self.x + self.w <= 1.0 + 1e-6
+            && self.y + self.h <= 1.0 + 1e-6;
+        if ok {
+            Ok(())
+        } else {
+            Err(Error::config("region must be normalised (0..=1), non-empty and inside the frame"))
+        }
+    }
+
+    /// The region in pixels of a `width x height` frame: `(x, y, w, h)`.
+    pub fn to_pixels(&self, width: u32, height: u32) -> (f32, f32, f32, f32) {
+        let (fw, fh) = (width as f32, height as f32);
+        (self.x * fw, self.y * fh, self.w * fw, self.h * fh)
+    }
+}
+
+/// Playback options for `file:` sources.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct PlaybackConfig {
+    /// Pace packets at the file's frame rate (like a camera). `false` reads
+    /// as fast as the pipeline accepts, for offline evaluation.
+    pub realtime: bool,
+    /// Restart at the end of the file.
+    #[serde(rename = "loop")]
+    pub looped: bool,
+}
+
+impl Default for PlaybackConfig {
+    fn default() -> Self {
+        Self { realtime: true, looped: true }
+    }
+}
+
+/// Where a stream comes from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SourceKind {
+    /// RTSP camera or server.
+    Rtsp,
+    /// Local video file (MP4, MKV, MOV, raw H.264/H.265, MJPEG...).
+    File(std::path::PathBuf),
+}
+
+/// A camera (RTSP) or video-file source.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct StreamConfig {
     /// Unique identifier.
     pub id: String,
-    /// `rtsp://` URL. Credentials may be embedded or given separately.
+    /// `rtsp://` URL (credentials may be embedded or given separately), or
+    /// `file:` followed by a path (`file:videos/a.mp4`, `file:///D:/a.mkv`).
     pub url: String,
     /// Optional user name (overrides the URL).
     pub username: Option<String>,
@@ -301,6 +369,10 @@ pub struct StreamConfig {
     pub decoder: Option<DecoderPref>,
     /// Reconnect back-off upper bound in milliseconds.
     pub max_reconnect_ms: u64,
+    /// Optional region of interest (normalised coordinates).
+    pub region: Option<Region>,
+    /// Playback options for `file:` sources.
+    pub playback: PlaybackConfig,
 }
 
 impl Default for StreamConfig {
@@ -315,6 +387,8 @@ impl Default for StreamConfig {
             gating: GatingConfig::default(),
             decoder: None,
             max_reconnect_ms: 10_000,
+            region: None,
+            playback: PlaybackConfig::default(),
         }
     }
 }
@@ -330,15 +404,41 @@ impl StreamConfig {
         }
     }
 
+    /// Kind of source described by `url`.
+    pub fn source_kind(&self) -> Result<SourceKind> {
+        let lower = self.url.to_ascii_lowercase();
+        if lower.starts_with("rtsp://") || lower.starts_with("rtsps://") {
+            return Ok(SourceKind::Rtsp);
+        }
+        if lower.starts_with("file:") {
+            let rest = &self.url[5..];
+            // file:///C:/x, file:///home/x, file://C:/x, file:relative/x
+            let path = match rest.strip_prefix("//") {
+                Some(r) => {
+                    let r = r.strip_prefix("localhost").unwrap_or(r);
+                    let windows_drive =
+                        r.len() > 2 && r.as_bytes()[0] == b'/' && r.as_bytes()[2] == b':';
+                    if windows_drive { &r[1..] } else { r }
+                }
+                None => rest,
+            };
+            if path.is_empty() {
+                return Err(Error::config(format!("stream '{}': empty file path", self.id)));
+            }
+            return Ok(SourceKind::File(path.replace("%20", " ").into()));
+        }
+        Err(Error::config(format!(
+            "stream '{}': url must start with rtsp://, rtsps:// or file:",
+            self.id
+        )))
+    }
+
     /// Validates the stream definition.
     pub fn validate(&self) -> Result<()> {
         validate_name(&self.id, "stream")?;
-        let lower = self.url.to_ascii_lowercase();
-        if !(lower.starts_with("rtsp://") || lower.starts_with("rtsps://")) {
-            return Err(Error::config(format!(
-                "stream '{}': url must start with rtsp:// or rtsps://",
-                self.id
-            )));
+        self.source_kind()?;
+        if let Some(r) = &self.region {
+            r.validate().map_err(|e| Error::config(format!("stream '{}': {e}", self.id)))?;
         }
         if self.outputs.is_empty() {
             return Err(Error::config(format!("stream '{}' has no outputs", self.id)));
@@ -464,6 +564,35 @@ mediamtx:
         assert!(EngineConfig::from_yaml(dup).is_err());
         assert!(
             EngineConfig::from_yaml("streams: [{id: c, url: 'http://x', outputs: []}]").is_err()
+        );
+    }
+
+    #[test]
+    fn regions_and_file_urls() {
+        let c = EngineConfig::from_yaml(
+            "outputs: {a: {}}
+streams:
+  - {id: door, url: 'rtsp://x/1', outputs: [a], region: {x: 0.5, y: 0, w: 0.5, h: 1}}
+  - {id: clip, url: 'file:videos/a.mp4', outputs: [a], playback: {realtime: false, loop: false}}
+",
+        )
+        .unwrap();
+        assert_eq!(c.streams[0].region.unwrap().to_pixels(1920, 1080), (960.0, 0.0, 960.0, 1080.0));
+        assert_eq!(c.streams[1].source_kind().unwrap(), SourceKind::File("videos/a.mp4".into()));
+        assert!(!c.streams[1].playback.looped && !c.streams[1].playback.realtime);
+        let f = |u: &str| StreamConfig::new("s", u, &["a"]).source_kind().unwrap();
+        assert_eq!(f("file:///D:/v/a%20b.mkv"), SourceKind::File("D:/v/a b.mkv".into()));
+        assert_eq!(f("file:///home/u/a.mp4"), SourceKind::File("/home/u/a.mp4".into()));
+        assert_eq!(f("rtsp://cam/1"), SourceKind::Rtsp);
+        let bad = "outputs: {a: {}}
+streams: [{id: s, url: 'rtsp://x', outputs: [a], region: {x: 0.8, y: 0, w: 0.5, h: 1}}]";
+        assert!(EngineConfig::from_yaml(bad).is_err());
+        assert!(
+            EngineConfig::from_yaml(
+                "outputs: {a: {}}
+streams: [{id: s, url: 'http://x', outputs: [a]}]"
+            )
+            .is_err()
         );
     }
 

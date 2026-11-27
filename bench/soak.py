@@ -96,7 +96,7 @@ def main():
     tmp = tempfile.mkdtemp()
     with open(os.path.join(tmp, "mediamtx.yml"), "w") as f:
         f.write(f"logLevel: error\napi: no\nrtspAddress: 127.0.0.1:{a.port}\nrtspTransports: [tcp]\n"
-                "rtmp: no\nhls: no\nwebrtc: no\nsrt: no\npaths:\n  all_others:\n")
+                "rtmp: no\nhls: no\nwebrtc: no\nsrt: no\nmoq: no\npaths:\n  all_others:\n")
     mtx = subprocess.Popen([mediamtx, os.path.join(tmp, "mediamtx.yml")], cwd=tmp,
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     time.sleep(1)
