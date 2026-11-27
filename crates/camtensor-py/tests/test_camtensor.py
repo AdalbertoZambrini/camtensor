@@ -99,11 +99,11 @@ def test_stream_to_numpy_and_dlpack(device):
             arr = batch.numpy()
             assert arr.shape == (len(batch), 3, 160, 160) and arr.dtype == np.float32
             assert 0.0 <= arr.min() and arr.max() <= 1.0
-            # Letterbox 640x360 -> 160x160: 25 padding rows on top.
+            # Letterbox 640x360 -> 160x160: scale 0.25, 35 padding rows on top.
             assert np.allclose(arr[0, :, 0, :], 114 / 255, atol=1e-3)
             dl = np.from_dlpack(batch.tensor)
             assert np.array_equal(dl, arr)
-            x1, y1, x2, y2 = item.box_to_source([0, 25, 160, 135])
+            x1, y1, x2, y2 = item.box_to_source([0, 35, 160, 125])
             assert abs(x2 - 640) < 1e-3 and abs(y2 - 360) < 1e-3
             crops = eng.crop(item.frame, [(0, 0, 320, 180), [[100, 100], [140, 100], [120, 120], [105, 140], [135, 140]]],
                              normalize="arcface", device="cpu")

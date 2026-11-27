@@ -396,7 +396,8 @@ impl PyBatch {
 
     /// Copy (or view, for host tensors) as a NumPy array.
     fn numpy<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
-        self.tensor().numpy(py)
+        let t = Bound::new(py, self.tensor())?;
+        PyTensor::numpy(&t, py)
     }
 
     fn __repr__(&self) -> String {
