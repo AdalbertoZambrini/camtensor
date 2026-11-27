@@ -67,6 +67,18 @@ enum Cmd {
     /// Benchmark: N streams into one batched output, report throughput,
     /// latency and resource usage.
     Bench(BenchArgs),
+    /// Receive batches from a running service through its shared-memory
+    /// data plane (must run on the same machine / IPC namespace).
+    Client {
+        /// Output name.
+        output: String,
+        /// Data plane address.
+        #[arg(long, default_value = "127.0.0.1:7071")]
+        data: String,
+        /// Number of batches to receive.
+        #[arg(long, default_value_t = 10)]
+        count: usize,
+    },
 }
 
 #[derive(clap::Args)]
@@ -129,6 +141,7 @@ fn main() -> Result<()> {
         Cmd::Run { config, interval, duration } => run(&config, interval, duration),
         Cmd::Serve { config, http, data, device } => serve(config, &http, &data, device),
         Cmd::Bench(args) => bench(args),
+        Cmd::Client { output, data, count } => client(&output, &data, count),
     }
 }
 
@@ -460,4 +473,38 @@ fn nvidia_smi() -> Option<String> {
     let s = String::from_utf8_lossy(&out.stdout);
     let v: Vec<&str> = s.lines().next()?.split(',').map(str::trim).collect();
     (v.len() == 3).then(|| format!("gpu {}% / nvdec {}% / {} MiB", v[0], v[1], v[2]))
+}
+
+fn client(output: &str, data: &str, count: usize) -> Result<()> {
+    let mut c = camtensor_client::Client::connect(data, output)
+        .with_context(|| format!("connect to data plane {data}"))?;
+    println!(
+        "subscribed to '{}': {}x{} {:?}, up to {} per batch",
+        c.output, c.tensor.width, c.tensor.height, c.tensor.dtype, c.max_batch
+    );
+    for _ in 0..count {
+        let b = c.recv()?;
+        let now = camtensor::core::time::now_ns();
+        let lat: Vec<String> = b
+            .items
+            .iter()
+            .filter(|i| i.valid)
+            .map(|i| {
+                format!(
+                    "{}:{:.1}ms",
+                    i.meta.stream_id,
+                    now.saturating_sub(i.meta.recv_time_ns) as f64 / 1e6
+                )
+            })
+            .collect();
+        println!(
+            "batch #{:<5} {:?} {} {} bytes  [{}]",
+            b.seq,
+            b.shape,
+            b.dtype,
+            b.data().len(),
+            lat.join(" ")
+        );
+    }
+    Ok(())
 }

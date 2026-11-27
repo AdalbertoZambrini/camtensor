@@ -15,4 +15,9 @@ All notable changes to this project are documented here. The format follows
 - Region crops from boxes, affine matrices or five keypoints (similarity alignment), on the GPU in one launch.
 - Compressed-domain motion gating: keyframes only while idle, with GOP replay on activity.
 - Python bindings with DLPack, `__cuda_array_interface__` and NumPy support, plus a C ABI, a standalone service (REST and shared memory), a client crate and a CLI (`probe`, `run`, `serve`, `bench`).
+- Video files as sources (`file:` URLs, FFmpeg 6+), with real-time or as-fast-as-possible playback and looping.
+- Per-stream regions of interest in normalised coordinates.
+- JPEG snapshots of kept frames (Rust, Python, C).
+- ONNX Runtime (IOBinding) and TensorRT zero-copy examples.
+- Docker image and a compose file with MediaMTX, simulated cameras and the service (GPU override included).
 - Prometheus metrics, test-media tooling, camera simulation scripts and CI for Linux, Windows and ARM64.

@@ -1,17 +1,21 @@
-# Camera simulation for Linux: MediaMTX + 4 looping RTSP cameras.
+# MediaMTX + simulated cameras + the camtensor service.
 #
-#   scripts/fetch-test-media.sh --quick         # media in testdata/media
-#   docker compose -f deploy/docker-compose.yml up -d
-#   ffprobe -rtsp_transport tcp rtsp://127.0.0.1:8554/cam1
+#   scripts/fetch-test-media.sh --quick          # media in testdata/media
+#   docker compose -f deploy/docker-compose.yml up -d --build
+#   curl http://127.0.0.1:7070/v1/stats          # camtensor statistics
 #   docker compose -f deploy/docker-compose.yml down
 #
-# Same endpoints as scripts/sim-cameras.sh: RTSP rtsp://127.0.0.1:8554/camN,
-# API http://127.0.0.1:9997. All services use host networking (recommended
-# by MediaMTX so that RTSP over UDP works without NAT); this needs a Linux
-# Docker engine. The files published by each camera can be changed with
-# CAM1_FILE..CAM4_FILE (paths relative to testdata/media), e.g.
+# NVIDIA GPU (NVDEC + CUDA), with the NVIDIA Container Toolkit or Docker
+# Desktop + WSL2:
+#   docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.gpu.yml up -d --build
+#
+# Ports on the host: RTSP 8554, MediaMTX API 9997, camtensor 7070 (REST)
+# and 7071 (data plane). Inside the network services reach each other by
+# name (mediamtx, camtensor). RTSP between containers uses TCP.
+#
+# The files published by each camera can be changed with CAM1_FILE..CAM4_FILE
+# (paths relative to testdata/media), e.g.
 #   CAM1_FILE=gating/gating-h264-1080p25-gop2s-vbr.mp4 docker compose -f deploy/docker-compose.yml up -d
-# To add cameras, copy a camN service and change its file and path.
 #
 # H.264/H.265 and the MJPEG files from fetch-test-media are published with
 # -c copy. Other MJPEG sources must be re-encoded with
@@ -22,7 +26,6 @@ name: camtensor-sim
 x-camera: &camera
   # linuxserver/ffmpeg: the container arguments are passed to ffmpeg.
   image: linuxserver/ffmpeg:9.0.2
-  network_mode: host
   restart: unless-stopped # retries until MediaMTX accepts the publisher
   depends_on: [mediamtx]
   volumes:
@@ -31,45 +34,54 @@ x-camera: &camera
 services:
   mediamtx:
     image: bluenviron/mediamtx:1.21.4
-    network_mode: host
     restart: unless-stopped
+    environment:
+      # The API must listen on the container network for camtensor.
+      MTX_APIADDRESS: ":9997"
     volumes:
       - ./mediamtx.yml:/mediamtx.yml:ro
+    ports:
+      - "8554:8554"
+      - "127.0.0.1:9997:9997"
 
   cam1:
     <<: *camera
     command: [-hide_banner, -nostats, -loglevel, warning, -re, -stream_loop, "-1",
               -i, "/media/${CAM1_FILE:-h264/h264-high-1920x1080-25fps-gop2s-vbr-6m.mp4}",
-              -map, "0:v:0", -c:v, copy, -f, rtsp, -rtsp_transport, tcp, "rtsp://127.0.0.1:8554/cam1"]
+              -map, "0:v:0", -c:v, copy, -f, rtsp, -rtsp_transport, tcp, "rtsp://mediamtx:8554/cam1"]
 
   cam2:
     <<: *camera
     command: [-hide_banner, -nostats, -loglevel, warning, -re, -stream_loop, "-1",
               -i, "/media/${CAM2_FILE:-h265/h265-main-1920x1080-25fps-gop2s-vbr-4m.mp4}",
-              -map, "0:v:0", -c:v, copy, -f, rtsp, -rtsp_transport, tcp, "rtsp://127.0.0.1:8554/cam2"]
+              -map, "0:v:0", -c:v, copy, -f, rtsp, -rtsp_transport, tcp, "rtsp://mediamtx:8554/cam2"]
 
   cam3:
     <<: *camera
     command: [-hide_banner, -nostats, -loglevel, warning, -re, -stream_loop, "-1",
               -i, "/media/${CAM3_FILE:-mjpeg/mjpeg-1280x720-25fps-q5.mkv}",
-              -map, "0:v:0", -c:v, copy, -f, rtsp, -rtsp_transport, tcp, "rtsp://127.0.0.1:8554/cam3"]
+              -map, "0:v:0", -c:v, copy, -f, rtsp, -rtsp_transport, tcp, "rtsp://mediamtx:8554/cam3"]
 
   cam4:
     <<: *camera
     command: [-hide_banner, -nostats, -loglevel, warning, -re, -stream_loop, "-1",
               -i, "/media/${CAM4_FILE:-h264/h264-baseline-640x360-25fps-gop1s-vbr-500k.mp4}",
-              -map, "0:v:0", -c:v, copy, -f, rtsp, -rtsp_transport, tcp, "rtsp://127.0.0.1:8554/cam4"]
+              -map, "0:v:0", -c:v, copy, -f, rtsp, -rtsp_transport, tcp, "rtsp://mediamtx:8554/cam4"]
 
-  # camtensor service (placeholder, added once `camtensor serve` exists):
-  # camtensor:
-  #   image: camtensor:latest
-  #   network_mode: host
-  #   depends_on: [mediamtx]
-  #   command: [serve, --config, /etc/camtensor/config.yml]
-  #   volumes:
-  #     - ./camtensor.yml:/etc/camtensor/config.yml:ro
-  #   # NVDEC / CUDA:
-  #   # deploy:
-  #   #   resources:
-  #   #     reservations:
-  #   #       devices: [{ driver: nvidia, count: all, capabilities: [gpu, video, compute, utility] }]
+  camtensor:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: camtensor:local
+    restart: unless-stopped
+    depends_on: [mediamtx]
+    # Default config: every MediaMTX path -> "detector" output (deploy/camtensor.yaml).
+    volumes:
+      - ./camtensor.yaml:/config/camtensor.yaml:ro
+    # Shared memory for the data plane; clients in other containers need the
+    # same /dev/shm (ipc: "service:camtensor").
+    ipc: shareable
+    shm_size: "1gb"
+    ports:
+      - "127.0.0.1:7070:7070"
+      - "127.0.0.1:7071:7071"

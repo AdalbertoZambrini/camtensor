@@ -292,10 +292,10 @@ impl Worker {
                     // Deliver the pictures still held by the decoder (B-frame
                     // reordering), e.g. the last frames of a file.
                     let mut frames = Vec::new();
-                    if let Some(d) = self.decoder.as_mut() {
-                        if let Err(e) = d.flush(&mut |f| frames.push(f)) {
-                            tracing::debug!(stream = %self.shared.id, "flush: {e}");
-                        }
+                    if let Some(d) = self.decoder.as_mut()
+                        && let Err(e) = d.flush(&mut |f| frames.push(f))
+                    {
+                        tracing::debug!(stream = %self.shared.id, "flush: {e}");
                     }
                     for f in frames {
                         self.on_frame(f);

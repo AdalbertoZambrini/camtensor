@@ -44,6 +44,9 @@ camtensor on NVDEC keeps **48 full-HD cameras in real time on less than one CPU 
 - **Fused preprocessing:** one pass per output pixel covers colour conversion (BT.601/709, limited/full range), resize, letterbox, crop and arbitrary affine warps. It also handles normalisation presets (`unit`, `imagenet`, `symmetric`, custom), `u8`/`f16`/`f32` output, NCHW/NHWC layout and RGB/BGR/GRAY channel order. CUDA kernel and SIMD-friendly CPU code implement the same math.
 - **Multi-camera batching:** batches close when full or at a deadline. A static batch size can be padded, backpressure is configurable (`drop_oldest`, `latest_only`, `block`), and buffer pools are recycled.
 - **Region crops for multi-stage pipelines:** keep the full-resolution frame, then cut **boxes, affine warps or crops aligned from 5 keypoints** for a second model, on the GPU, in one launch, with no frame leaving the device.
+- **Video files as sources:** `file:` URLs (MP4, MKV, MOV, raw H.264/H.265, MJPEG) go through the same pipeline. Files can be read in real time like a camera, or as fast as the model accepts with no frame dropped, which suits offline evaluation. They can loop.
+- **Regions of interest:** each camera can be restricted to part of the frame (normalised coordinates, so a resolution change does not break it). Results still map back to full-frame pixels.
+- **JPEG snapshots:** `snapshot(frame)` encodes a kept frame, or a region of it, without decoding again. The colour conversion runs on the GPU.
 - **Compressed-domain motion gating:** packet sizes are read without decoding. Idle cameras decode keyframes only, and the buffered GOP is replayed the moment activity starts. This cut CPU by 54% on a mostly static scene.
 - **Everywhere:** Rust crate, Python wheel (`abi3`, 1.6 MB, DLPack / `__cuda_array_interface__` / NumPy), C ABI, a standalone service (REST control plane and shared-memory data plane), and a CLI (`probe`, `run`, `serve`, `bench`). Prometheus metrics are built in.
 - **Linux and Windows,** on x86_64 and ARM64. The GPU path needs only the NVIDIA driver at runtime; the CPU path runs on any processor.
@@ -54,6 +57,7 @@ camtensor on NVDEC keeps **48 full-HD cameras in real time on less than one CPU 
 pip install camtensor          # Python (wheels for Linux and Windows)
 cargo add camtensor            # Rust
 cargo install camtensor-cli    # CLI: camtensor probe / run / serve / bench
+docker run --gpus all -p 7070:7070 -p 7071:7071 ghcr.io/adalbertozambrini/camtensor   # service
 ```
 
 Runtime requirements:
@@ -61,7 +65,7 @@ Runtime requirements:
 | Path | Needs |
 |---|---|
 | GPU (NVDEC + CUDA) | NVIDIA driver ≥ 525 (Maxwell or newer). No CUDA toolkit. |
-| CPU H.264/H.265 | FFmpeg shared libraries: `apt install libavcodec-dev` (Linux), or an LGPL "shared" build with `CAMTENSOR_FFMPEG_DIR` pointing at its `bin` folder (Windows). |
+| CPU H.264/H.265, video files | FFmpeg shared libraries (file sources need FFmpeg 6 or newer): `apt install libavcodec-dev` (Linux), or an LGPL "shared" build with `CAMTENSOR_FFMPEG_DIR` pointing at its `bin` folder (Windows). |
 | CPU MJPEG | Nothing. A pure-Rust decoder is built in. |
 
 ## Configuration
@@ -83,6 +87,11 @@ streams:
     url: rtsp://user:pass@10.0.0.20:554/stream1
     outputs: [detector]
     gating: { mode: auto, threshold: 1.6, hold_ms: 2000 }
+    region: { x: 0.5, y: 0.0, w: 0.5, h: 1.0 }   # optional: right half only
+  - id: recording
+    url: file:videos/day1.mp4   # offline evaluation on a file
+    outputs: [detector]
+    playback: { realtime: false, loop: false }
 mediamtx:                       # optional auto-discovery
   api_url: http://127.0.0.1:9997
   rtsp_url: rtsp://127.0.0.1:8554
@@ -129,6 +138,24 @@ curl localhost:7070/metrics
 
 Consumers in other processes receive batches through shared memory (`camtensor-client`).
 
+With Docker, the compose file starts MediaMTX, simulated cameras and the service:
+
+```bash
+docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.gpu.yml up -d --build
+curl localhost:7070/v1/stats
+```
+
+## Examples
+
+| Example | Shows |
+|---|---|
+| [`examples/python/quickstart.py`](examples/python/quickstart.py) | Stream to PyTorch (GPU) or NumPy |
+| [`examples/python/onnxruntime_iobinding.py`](examples/python/onnxruntime_iobinding.py) | ONNX Runtime CUDA with IOBinding: the model reads camtensor's buffer directly |
+| [`examples/python/tensorrt_infer.py`](examples/python/tensorrt_infer.py) | TensorRT with a dynamic batch, zero-copy input via `set_tensor_address` |
+| [`examples/python/keypoint_crops.py`](examples/python/keypoint_crops.py) | Two-stage pipeline with aligned crops |
+| [`crates/camtensor/examples/basic.rs`](crates/camtensor/examples/basic.rs) | Rust consumer |
+| [`examples/c/consumer.c`](examples/c/consumer.c) | C consumer |
+
 ## Repository layout
 
 | Crate | Role |
@@ -157,6 +184,7 @@ cargo run -p xtask -- ptx         # regenerate the CUDA PTX (needs NVRTC; the PT
 
 - Intel/AMD GPU decode (VAAPI, D3D11VA, oneVPL) and Jetson
 - Zero-copy GPU IPC for the service (CUDA VMM handles)
+- GPU JPEG encoding (nvJPEG) for snapshots
 - 10-bit HEVC and NV16 output for MJPEG 4:2:2
 - AVX2/NEON CPU sampler paths
 

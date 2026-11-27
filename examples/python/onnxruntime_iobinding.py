@@ -120,7 +120,7 @@ def main() -> None:
     so.add_session_config_entry("session.disable_cpu_ep_fallback", "1")
     sess = ort.InferenceSession(
         model_path, so,
-        providers=[("CUDAExecutionProvider", {"device_id": gpu_index}), "CPUExecutionProvider"],
+        providers=[("CUDAExecutionProvider", {"device_id": gpu_index})],
     )
     providers = sess.get_providers()
     print("ORT", ort.__version__, "providers:", providers)

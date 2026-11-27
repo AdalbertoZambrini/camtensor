@@ -1,0 +1,11 @@
+# GPU override: NVDEC decoding and CUDA preprocessing for the camtensor service.
+#   docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.gpu.yml up -d --build
+services:
+  camtensor:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu, compute, utility, video]
