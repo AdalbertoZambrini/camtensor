@@ -21,6 +21,8 @@
 
 #![forbid(unsafe_code)]
 
+// Version pin only (see Cargo.toml).
+use pretty_hex as _;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -264,6 +266,3 @@ mod tests {
         assert!(end.is_ok());
     }
 }
-
-// Version pin only (see Cargo.toml).
-use pretty_hex as _;
