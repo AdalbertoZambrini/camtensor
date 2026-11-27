@@ -484,3 +484,34 @@ fn frame_buffers_are_pooled() {
     // Frames are dropped right away, so very few distinct buffers are used.
     assert!(ptrs.len() <= 2, "{} distinct buffers", ptrs.len());
 }
+
+/// NVDEC throughput on a generated 1080p H.264 clip:
+/// `cargo test --release -p camtensor-decode --test nvdec -- --ignored --nocapture`
+#[test]
+#[ignore = "benchmark"]
+fn bench_nvdec_1080p_h264() {
+    let Some(ff) = setup() else { return };
+    let data = h264(&ff, "h264-1080p.h264", "1920x1080", 250, &["-bf", "0", "-preset", "veryfast"]);
+    let aus = split_annexb(&data, Codec::H264);
+    let mut dec = NvdecDecoder::open(&params(Codec::H264), 0, 8).unwrap();
+    let mut n = 0usize;
+    // Warm-up pass, then timed passes (flush restarts the parser).
+    for (i, au) in aus.iter().take(25).enumerate() {
+        dec.decode(&packet(Codec::H264, au.clone(), i), true, &mut |_| {}).unwrap();
+    }
+    dec.flush(&mut |_| {}).unwrap();
+    let t = std::time::Instant::now();
+    for pass in 0..4 {
+        for (i, au) in aus.iter().enumerate() {
+            dec.decode(&packet(Codec::H264, au.clone(), pass * 1000 + i), true, &mut |_| n += 1)
+                .unwrap();
+        }
+        dec.flush(&mut |_| n += 1).unwrap();
+    }
+    let s = t.elapsed().as_secs_f64();
+    println!(
+        "NVDEC 1080p H.264: {n} frames in {s:.2} s = {:.0} fps (decode + copy to pooled buffer)",
+        n as f64 / s
+    );
+    assert_eq!(n, 4 * aus.len());
+}
