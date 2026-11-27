@@ -44,9 +44,9 @@ camtensor-core = { path = "crates/camtensor-core", version = "0.1.0" }
 camtensor-bitstream = { path = "crates/camtensor-bitstream", version = "0.1.0" }
 camtensor-ingest = { path = "crates/camtensor-ingest", version = "0.1.0" }
 camtensor-cuda = { path = "crates/camtensor-cuda", version = "0.1.0" }
-camtensor-decode = { path = "crates/camtensor-decode", version = "0.1.0" }
+camtensor-decode = { path = "crates/camtensor-decode", version = "0.1.0", default-features = false }
 camtensor-preprocess = { path = "crates/camtensor-preprocess", version = "0.1.0" }
-camtensor = { path = "crates/camtensor", version = "0.1.0" }
+camtensor = { path = "crates/camtensor", version = "0.1.0", default-features = false }
 camtensor-service = { path = "crates/camtensor-service", version = "0.1.0" }
 camtensor-client = { path = "crates/camtensor-client", version = "0.1.0" }
 

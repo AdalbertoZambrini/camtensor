@@ -20,7 +20,7 @@ ffmpeg = ["camtensor/ffmpeg"]
 jpeg = ["camtensor/jpeg"]
 
 [dependencies]
-camtensor = { workspace = true, default-features = false }
+camtensor.workspace = true
 pyo3 = { version = "0.30", features = ["abi3-py39", "extension-module"] }
 serde.workspace = true
 serde_json.workspace = true

@@ -21,6 +21,7 @@ tokio.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
+camtensor = { workspace = true, features = ["default"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 camtensor-core.workspace = true
 

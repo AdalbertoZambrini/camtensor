@@ -21,7 +21,7 @@ ffmpeg = ["camtensor/ffmpeg"]
 jpeg = ["camtensor/jpeg"]
 
 [dependencies]
-camtensor = { workspace = true, default-features = false }
+camtensor.workspace = true
 camtensor-service.workspace = true
 anyhow.workspace = true
 clap.workspace = true

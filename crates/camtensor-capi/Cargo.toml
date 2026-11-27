@@ -20,7 +20,7 @@ ffmpeg = ["camtensor/ffmpeg"]
 jpeg = ["camtensor/jpeg"]
 
 [dependencies]
-camtensor = { workspace = true, default-features = false }
+camtensor.workspace = true
 serde_json.workspace = true
 
 [lints]
