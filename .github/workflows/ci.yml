@@ -71,6 +71,30 @@ jobs:
       - run: cargo test --workspace --all-targets
       - run: cargo test --workspace --doc
 
+  c-api:
+    name: C example (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release -p camtensor-capi
+      - name: Compile with gcc (warnings are errors)
+        if: runner.os == 'Linux'
+        run: |
+          gcc -std=c11 -Wall -Wextra -Werror -o consumer examples/c/consumer.c -Icrates/camtensor-capi/include -Ltarget/release -lcamtensor_c
+          LD_LIBRARY_PATH=target/release ldd ./consumer | grep camtensor_c
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: runner.os == 'Windows'
+      - name: Compile with MSVC (warnings are errors)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: cl /nologo /W4 /WX /Icrates/camtensor-capi/include examples/c/consumer.c target/release/camtensor_c.dll.lib /Fe:consumer.exe
+
   msrv:
     name: MSRV build
     runs-on: ubuntu-latest
