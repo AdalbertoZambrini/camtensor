@@ -1,0 +1,73 @@
+# MediaMTX configuration for local camera simulation (camtensor tests and
+# benchmarks). Tested with MediaMTX v1.21.4.
+#
+# Used by scripts/sim-cameras.{ps1,sh} and deploy/docker-compose.yml.
+# Only RTSP (TCP + UDP) and the control API are enabled. Every setting that
+# is not listed here keeps the MediaMTX default.
+#
+# Settings can be overridden without editing this file through environment
+# variables, e.g. MTX_APIADDRESS=:9997 or MTX_LOGLEVEL=debug.
+
+logLevel: info
+logDestinations: [stdout]
+
+# 4K keyframes at 20+ Mb/s are several hundred RTP packets; the default
+# queue (512) can overflow for slow readers. Must be a power of two.
+writeQueueSize: 4096
+
+###############################################
+# Authentication: anonymous publish/read for everybody (local simulation
+# only), API access from loopback and private networks (the docker bridge
+# network is private; exposure is controlled by apiAddress and port
+# publishing).
+
+authMethod: internal
+authInternalUsers:
+  - user: any
+    pass:
+    ips: []
+    permissions:
+      - action: publish
+      - action: read
+      - action: playback
+  - user: any
+    pass:
+    ips: ["127.0.0.1", "::1", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
+    permissions:
+      - action: api
+      - action: metrics
+
+###############################################
+# Control API (camtensor's MediaMTX auto-discovery polls /v3/paths/list).
+
+api: true
+apiAddress: 127.0.0.1:9997
+
+metrics: false
+pprof: false
+playback: false
+
+###############################################
+# RTSP server: TCP (interleaved) and UDP unicast.
+
+rtsp: true
+rtspTransports: [tcp, udp]
+rtspEncryption: "no"
+rtspAddress: :8554
+rtpAddress: :8000
+rtcpAddress: :8001
+
+###############################################
+# Everything else is disabled.
+
+rtmp: false
+hls: false
+webrtc: false
+srt: false
+moq: false
+
+###############################################
+# Paths: any name can be published (camN, gate1, ...).
+
+paths:
+  all_others:
