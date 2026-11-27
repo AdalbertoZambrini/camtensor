@@ -9,9 +9,11 @@ repository.workspace = true
 authors.workspace = true
 keywords.workspace = true
 categories.workspace = true
+include = ["src/**", "kernels/**", "examples/**", "tests/**", "Cargo.toml"]
 
 [dependencies]
 camtensor-core.workspace = true
+libloading.workspace = true
 
 [lints]
 workspace = true

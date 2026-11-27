@@ -207,12 +207,14 @@ name = "camtensor-cuda"
 version = "0.1.0"
 dependencies = [
  "camtensor-core",
+ "libloading",
 ]
 
 [[package]]
 name = "camtensor-decode"
 version = "0.1.0"
 dependencies = [
+ "bytes",
  "camtensor-core",
  "camtensor-cuda",
  "libloading",
@@ -1252,7 +1254,7 @@ dependencies = [
 name = "xtask"
 version = "0.1.0"
 dependencies = [
- "camtensor-core",
+ "libloading",
 ]
 
 [[package]]
