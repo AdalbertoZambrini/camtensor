@@ -12,6 +12,13 @@ categories.workspace = true
 
 [dependencies]
 camtensor-core.workspace = true
+camtensor-bitstream.workspace = true
+bytes.workspace = true
+futures.workspace = true
+retina = "0.4.22"
+tokio.workspace = true
+tracing.workspace = true
+url.workspace = true
 
 [lints]
 workspace = true
