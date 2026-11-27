@@ -10,8 +10,15 @@ authors.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
+[features]
+default = ["rayon"]
+# Row-parallel processing of large outputs with rayon (`Parallelism::Rayon`).
+rayon = ["dep:rayon"]
+
 [dependencies]
 camtensor-core.workspace = true
+half = { workspace = true, features = ["std"] }
+rayon = { workspace = true, optional = true }
 
 [lints]
 workspace = true
