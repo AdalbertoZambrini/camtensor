@@ -1,6 +1,6 @@
 [package]
 name = "camtensor-client"
-description = "Client for the camtensor service shared-memory data plane"
+description = "Client for the camtensor service: receive batches through shared memory"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -12,6 +12,9 @@ categories.workspace = true
 
 [dependencies]
 camtensor-core.workspace = true
+memmap2 = "0.9"
+serde.workspace = true
+serde_json.workspace = true
 
 [lints]
 workspace = true

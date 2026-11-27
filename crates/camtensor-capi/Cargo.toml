@@ -1,17 +1,27 @@
 [package]
 name = "camtensor-capi"
 description = "C ABI for camtensor"
+publish = false
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-keywords.workspace = true
-categories.workspace = true
+
+[lib]
+name = "camtensor"
+crate-type = ["cdylib", "staticlib", "rlib"]
+
+[features]
+default = ["cuda", "ffmpeg", "jpeg"]
+cuda = ["camtensor/cuda"]
+ffmpeg = ["camtensor/ffmpeg"]
+jpeg = ["camtensor/jpeg"]
 
 [dependencies]
-camtensor-core.workspace = true
+camtensor = { workspace = true, default-features = false }
+serde_json.workspace = true
 
 [lints]
 workspace = true

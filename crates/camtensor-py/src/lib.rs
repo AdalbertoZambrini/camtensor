@@ -52,7 +52,11 @@ impl PyEngine {
     /// configured device.
     #[new]
     #[pyo3(signature = (config=None, device=None))]
-    fn new(py: Python<'_>, config: Option<&Bound<'_, PyAny>>, device: Option<&str>) -> PyResult<Self> {
+    fn new(
+        py: Python<'_>,
+        config: Option<&Bound<'_, PyAny>>,
+        device: Option<&str>,
+    ) -> PyResult<Self> {
         let mut cfg = match config {
             None => EngineConfig::default(),
             Some(obj) if obj.is_instance_of::<PyDict>() => {
@@ -123,7 +127,8 @@ impl PyEngine {
         queue_depth: usize,
         device: Option<&str>,
     ) -> PyResult<()> {
-        let tensor = build_spec(width, height, dtype, layout, color, resize, interp, normalize, pad)?;
+        let tensor =
+            build_spec(width, height, dtype, layout, color, resize, interp, normalize, pad)?;
         let cfg = OutputConfig {
             tensor,
             batch: BatchConfig { max_size: batch, max_wait_ms, pad_to_max },
@@ -187,7 +192,8 @@ impl PyEngine {
     /// `timeout` seconds (None waits forever, releasing the GIL).
     #[pyo3(signature = (output, timeout=None))]
     fn recv(&self, py: Python<'_>, output: &str, timeout: Option<f64>) -> PyResult<PyBatch> {
-        let deadline = timeout.map(|s| std::time::Instant::now() + Duration::from_secs_f64(s.max(0.0)));
+        let deadline =
+            timeout.map(|s| std::time::Instant::now() + Duration::from_secs_f64(s.max(0.0)));
         loop {
             // Wake up periodically so Ctrl+C (KeyboardInterrupt) works.
             let mut wait = Duration::from_millis(200);
@@ -247,9 +253,7 @@ impl PyEngine {
         let spec = build_spec(width, height, dtype, layout, color, resize, interp, normalize, pad)?;
         let rois = parse_rois(rois)?;
         let device = device.map(|d| d.parse::<Device>()).transpose().map_err(to_py)?;
-        let t = py
-            .detach(|| self.inner.crop(&frame.inner, &rois, &spec, device))
-            .map_err(to_py)?;
+        let t = py.detach(|| self.inner.crop(&frame.inner, &rois, &spec, device)).map_err(to_py)?;
         Ok(PyTensor { inner: t })
     }
 
@@ -531,13 +535,7 @@ impl PyFrame {
         self.inner.pts
     }
     fn __repr__(&self) -> String {
-        format!(
-            "Frame({}x{}, {}, {})",
-            self.width(),
-            self.height(),
-            self.format(),
-            self.device()
-        )
+        format!("Frame({}x{}, {}, {})", self.width(), self.height(), self.format(), self.device())
     }
 }
 

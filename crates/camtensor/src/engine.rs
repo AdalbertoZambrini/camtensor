@@ -250,6 +250,27 @@ impl Engine {
         ctx.crop(&self.inner.backend, &src, &plans, spec, device)
     }
 
+    /// Copies a tensor (host or device) into a host buffer of exactly
+    /// `tensor.byte_len()` bytes.
+    pub fn copy_to_host(&self, tensor: &Tensor, dst: &mut [u8]) -> Result<()> {
+        if dst.len() != tensor.byte_len() {
+            return Err(Error::config("copy_to_host: destination size mismatch"));
+        }
+        if let Some(b) = tensor.as_bytes() {
+            dst.copy_from_slice(b);
+            return Ok(());
+        }
+        let mut ctx = self.inner.backend.worker()?;
+        ctx.download(tensor.data_ptr(), dst)
+    }
+
+    /// Copies a tensor to a new host `Vec<u8>`.
+    pub fn to_host_vec(&self, tensor: &Tensor) -> Result<Vec<u8>> {
+        let mut v = vec![0u8; tensor.byte_len()];
+        self.copy_to_host(tensor, &mut v)?;
+        Ok(v)
+    }
+
     /// Snapshot of runtime statistics.
     pub fn stats(&self) -> EngineStats {
         let streams = {

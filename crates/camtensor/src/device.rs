@@ -172,6 +172,16 @@ impl WorkerCtx {
         }
     }
 
+    /// Copies device memory at `src` into `dst`.
+    pub(crate) fn download(&mut self, src: u64, dst: &mut [u8]) -> Result<()> {
+        #[cfg(feature = "cuda")]
+        if let Some(g) = &mut self.gpu {
+            return g.download(src, dst);
+        }
+        let _ = (src, dst);
+        Err(Error::unavailable("device tensor without a CUDA context"))
+    }
+
     /// Extracts crops of `frame` into a new tensor `[rois.len(), ...]`.
     pub(crate) fn crop(
         &mut self,
