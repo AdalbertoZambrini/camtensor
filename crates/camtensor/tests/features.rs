@@ -35,8 +35,10 @@ fn ffmpeg_libs() {
     }
 }
 
-/// Generates `frames` frames of testsrc2 at 25 fps with the given encoder args.
-fn clip(ff: &Path, name: &str, size: &str, frames: u32, args: &[&str]) -> PathBuf {
+/// Generates `frames` frames of testsrc2 at 25 fps with the given encoder
+/// args; `None` when this FFmpeg build lacks the encoder (e.g. LGPL builds
+/// have no libx264/libx265).
+fn clip(ff: &Path, name: &str, size: &str, frames: u32, args: &[&str]) -> Option<PathBuf> {
     let dir = std::env::temp_dir().join(format!("camtensor-features-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let out = dir.join(name);
@@ -49,9 +51,13 @@ fn clip(ff: &Path, name: &str, size: &str, frames: u32, args: &[&str]) -> PathBu
             .arg(&out)
             .status()
             .unwrap();
-        assert!(st.success(), "ffmpeg failed for {name}");
+        if !st.success() {
+            eprintln!("skipped {name}: this ffmpeg cannot encode it");
+            let _ = std::fs::remove_file(&out);
+            return None;
+        }
     }
-    out
+    Some(out)
 }
 
 fn engine(
@@ -139,12 +145,15 @@ fn file_sources_deliver_every_frame() {
         &["-c:v", "libx264", "-g", "10", "-bsf:v", "h264_mp4toannexb", "-f", "h264"],
     );
 
-    for (path, w, h) in [
-        (&h264_mp4, 640, 360),
-        (&h265_mkv, 640, 360),
-        (&mjpeg_mkv, 320, 240),
-        (&raw_h264, 640, 360),
-    ] {
+    // MJPEG is always encodable (native FFmpeg encoder).
+    let mjpeg_mkv = mjpeg_mkv.expect("mjpeg encoder");
+    let cases = [
+        (h264_mp4.clone(), 640, 360),
+        (h265_mkv, 640, 360),
+        (Some(mjpeg_mkv.clone()), 320, 240),
+        (raw_h264, 640, 360),
+    ];
+    for (path, w, h) in cases.iter().filter_map(|(p, w, h)| p.as_ref().map(|p| (p, *w, *h))) {
         let e = engine(
             file_url(path),
             PlaybackConfig { realtime: false, looped: false },
@@ -170,8 +179,9 @@ fn file_sources_deliver_every_frame() {
 
     // Real-time playback paces at the file rate (25 fps): 50 frames ≈ 2 s.
     let t0 = Instant::now();
+    let paced = h264_mp4.unwrap_or_else(|| mjpeg_mkv.clone());
     let e = engine(
-        file_url(&h264_mp4),
+        file_url(&paced),
         PlaybackConfig { realtime: true, looped: false },
         None,
         out_cfg(64, 64),
@@ -224,13 +234,24 @@ fn region_of_interest_and_snapshots() {
         eprintln!("skipped: ffmpeg not found");
         return;
     };
+    // H.264 when the encoder exists, MJPEG otherwise (always available).
     let path = clip(
         &ff,
         "roi.mp4",
         "1280x720",
         20,
         &["-c:v", "libx264", "-g", "10", "-pix_fmt", "yuv420p"],
-    );
+    )
+    .or_else(|| {
+        clip(
+            &ff,
+            "roi.mkv",
+            "1280x720",
+            20,
+            &["-c:v", "mjpeg", "-q:v", "3", "-pix_fmt", "yuvj420p"],
+        )
+    })
+    .expect("mjpeg encoder");
     let region = Region { x: 0.5, y: 0.0, w: 0.5, h: 1.0 };
     let mut out = out_cfg(320, 320);
     out.tensor.resize = ResizeMode::Letterbox;
