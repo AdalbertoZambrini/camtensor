@@ -122,10 +122,10 @@ impl Normalize {
     /// ImageNet mean/std on `0..=1` RGB values.
     pub const IMAGENET: Self =
         Self { scale: 1.0 / 255.0, mean: [0.485, 0.456, 0.406], std: [0.229, 0.224, 0.225] };
-    /// `(pixel - 127.5) / 127.5`, i.e. `-1..=1` (ArcFace / InsightFace).
+    /// `(pixel - 127.5) / 127.5`, i.e. `-1..=1`.
     pub const SYMMETRIC: Self = Self { scale: 1.0 / 127.5, mean: [1.0; 3], std: [1.0; 3] };
 
-    /// Looks up a named preset (`none`, `unit`, `imagenet`, `symmetric`/`arcface`).
+    /// Looks up a named preset (`none`, `unit`, `imagenet`, `symmetric`).
     pub fn preset(name: &str) -> Option<Self> {
         Some(match name.to_ascii_lowercase().as_str() {
             "none" | "raw" => Self::NONE,
@@ -384,7 +384,7 @@ mod tests {
     #[test]
     fn spec_yaml_roundtrip() {
         let spec: TensorSpec = serde_norway::from_str(
-            "width: 112\nheight: 112\ndtype: f16\nnormalize: arcface\nresize: stretch\n",
+            "width: 112\nheight: 112\ndtype: f16\nnormalize: symmetric\nresize: stretch\n",
         )
         .unwrap();
         assert_eq!(spec.width, 112);

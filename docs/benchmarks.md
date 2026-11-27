@@ -66,7 +66,7 @@ Gating relies on packet sizes, so it does not work on cameras configured for con
 | Operation | Time |
 |---|---:|
 | CUDA fused kernel, 1080p NV12 → 640x640 f16 letterbox | 12.6 µs / frame (at launch-overhead floor) |
-| CUDA, 32 aligned 112x112 face crops in one launch | ~21 µs |
+| CUDA, 32 keypoint-aligned 112x112 crops in one launch | ~21 µs |
 | CPU fused sampler, 1080p NV12 → 640x640 f16, one core | 1.22 ms |
 | CPU fused sampler, same, Rayon | ~0.19 ms |
 | NVDEC decode + copy, 1080p H.264, one stream | ~1,685 fps |

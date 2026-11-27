@@ -1,7 +1,7 @@
 from typing import Any, Iterator, Literal, Mapping, Optional, Sequence, Tuple, Union
 
 __version__: str
-ARCFACE_112_TEMPLATE: Tuple[Tuple[float, float], ...]
+KEYPOINT_TEMPLATE_112: Tuple[Tuple[float, float], ...]
 
 DType = Literal["u8", "uint8", "f16", "float16", "f32", "float32"]
 Layout = Literal["nchw", "nhwc"]
@@ -9,7 +9,7 @@ Color = Literal["rgb", "bgr", "gray"]
 Resize = Literal["stretch", "letterbox", "letterbox_top_left", "crop_center", "none"]
 Interp = Literal["bilinear", "nearest"]
 Normalize = Union[
-    Literal["none", "unit", "imagenet", "arcface", "symmetric"],
+    Literal["none", "unit", "imagenet", "symmetric"],
     Mapping[str, Any],
 ]
 Roi = Union[

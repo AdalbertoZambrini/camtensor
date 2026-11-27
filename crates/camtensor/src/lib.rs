@@ -7,8 +7,8 @@
 //! colour-converted, resized/letterboxed, normalised and laid out
 //! (NCHW/NHWC, f32/f16/u8), straight into pooled batch tensors on the GPU or
 //! in host memory. Optional compressed-domain motion gating skips decoding
-//! static scenes, and the crop API turns detector landmarks into aligned
-//! face crops without leaving the GPU.
+//! static scenes, and the crop API turns detector keypoints into aligned
+//! crops (boxes, affine warps, keypoint alignment) without leaving the GPU.
 //!
 //! ```no_run
 //! use camtensor::{Engine, EngineConfig};

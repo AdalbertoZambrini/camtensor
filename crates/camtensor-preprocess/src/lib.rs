@@ -87,7 +87,7 @@ pub fn plan(src_w: u32, src_h: u32, spec: &TensorSpec) -> Plan {
         .unwrap_or(Plan { dst_from_src, sampling: Affine2::IDENTITY })
 }
 
-/// Plans a crop (box, affine warp or ArcFace landmark alignment).
+/// Plans a crop (box, affine warp or keypoint alignment).
 pub fn plan_roi(roi: &Roi, spec: &TensorSpec) -> Result<Plan> {
     roi.dst_from_src(spec.width, spec.height, spec.resize)
         .and_then(Plan::from_dst_from_src)

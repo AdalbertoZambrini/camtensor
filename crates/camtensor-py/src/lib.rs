@@ -227,8 +227,8 @@ impl PyEngine {
     ///
     /// Each ROI is one of: `(x, y, w, h)` box, a dict `{"kind": "box", ...}`,
     /// `{"kind": "affine", "matrix": [6 floats]}` (OpenCV convention),
-    /// `{"kind": "landmarks", "points": [[x, y] x 5]}`, or a 5x2 list of
-    /// landmarks (ArcFace alignment).
+    /// `{"kind": "keypoints", "points": [[x, y] x 5]}`, or a 5x2 list of
+    /// keypoints (aligned crop).
     #[pyo3(signature = (
         frame, rois, width=112, height=112, *, dtype="f32", layout="nchw", color="rgb",
         resize="stretch", interp="bilinear", normalize=None, pad=None, device=None
@@ -724,12 +724,12 @@ fn parse_rois(obj: &Bound<'_, PyAny>) -> PyResult<Vec<Roi>> {
         } else if let Ok(b) = item.extract::<[f32; 4]>() {
             out.push(Roi::Box { x: b[0], y: b[1], w: b[2], h: b[3] });
         } else if let Ok(points) = item.extract::<[[f32; 2]; 5]>() {
-            out.push(Roi::Landmarks { points });
+            out.push(Roi::Keypoints { points });
         } else if let Ok(m) = item.extract::<[f32; 6]>() {
             out.push(Roi::Affine { matrix: m });
         } else {
             return Err(PyValueError::new_err(
-                "roi must be (x, y, w, h), 5x2 landmarks, 6 affine values or a dict",
+                "roi must be (x, y, w, h), 5x2 keypoints, 6 affine values or a dict",
             ));
         }
     }

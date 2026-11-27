@@ -1,5 +1,5 @@
 //! 2-D geometry: affine transforms, resize mappings, regions of interest and
-//! face-alignment helpers.
+//! keypoint alignment helpers.
 //!
 //! # Coordinate conventions
 //!
@@ -175,10 +175,10 @@ impl Affine2 {
     }
 }
 
-/// Reference 5-point face template (left eye, right eye, nose tip, left
-/// mouth corner, right mouth corner) for 112x112 ArcFace crops, in OpenCV
-/// index coordinates, as published with InsightFace.
-pub const ARCFACE_112_TEMPLATE: [[f32; 2]; 5] = [
+/// Default reference layout of five keypoints for 112x112 aligned crops, in
+/// OpenCV index coordinates. [`Roi::Keypoints`] maps the detected points onto
+/// this layout (scaled to the output size).
+pub const KEYPOINT_TEMPLATE_112: [[f32; 2]; 5] = [
     [38.2946, 51.6963],
     [73.5318, 51.5014],
     [56.0252, 71.7366],
@@ -208,11 +208,13 @@ pub enum Roi {
         /// Row-major 2x3 matrix.
         matrix: [f32; 6],
     },
-    /// Five facial landmarks in source pixels (OpenCV index coordinates, as
-    /// returned by RetinaFace/SCRFD/YOLO-face). The crop is aligned to the
-    /// ArcFace template scaled to the output size.
-    Landmarks {
-        /// Left eye, right eye, nose, left mouth, right mouth.
+    /// Five keypoints in source pixels (OpenCV index coordinates), as
+    /// returned by keypoint detectors. The crop is aligned with a similarity
+    /// transform (rotation, uniform scale, translation) onto
+    /// [`KEYPOINT_TEMPLATE_112`] scaled to the output size.
+    #[serde(alias = "landmarks")]
+    Keypoints {
+        /// Points in the same order as [`KEYPOINT_TEMPLATE_112`].
         points: [[f32; 2]; 5],
     },
 }
@@ -235,10 +237,10 @@ impl Roi {
                 let a = Affine2::from_opencv(matrix);
                 a.invert().map(|_| a)
             }
-            Roi::Landmarks { points } => {
+            Roi::Keypoints { points } => {
                 let (sx, sy) = (dst_w as f32 / 112.0, dst_h as f32 / 112.0);
                 let template: Vec<[f32; 2]> =
-                    ARCFACE_112_TEMPLATE.iter().map(|p| [p[0] * sx, p[1] * sy]).collect();
+                    KEYPOINT_TEMPLATE_112.iter().map(|p| [p[0] * sx, p[1] * sy]).collect();
                 Affine2::similarity(&points, &template).map(|m| Affine2::from_opencv(m.0))
             }
         }
@@ -308,7 +310,7 @@ mod tests {
     #[test]
     fn similarity_recovers_known_transform() {
         let truth = Affine2([1.2 * 0.8, -1.2 * 0.6, 30.0, 1.2 * 0.6, 1.2 * 0.8, -12.0]);
-        let src: Vec<[f32; 2]> = ARCFACE_112_TEMPLATE.to_vec();
+        let src: Vec<[f32; 2]> = KEYPOINT_TEMPLATE_112.to_vec();
         let dst: Vec<[f32; 2]> = src
             .iter()
             .map(|p| {
@@ -323,8 +325,8 @@ mod tests {
     }
 
     #[test]
-    fn landmarks_on_template_give_identity_crop() {
-        let roi = Roi::Landmarks { points: ARCFACE_112_TEMPLATE };
+    fn keypoints_on_template_give_identity_crop() {
+        let roi = Roi::Keypoints { points: KEYPOINT_TEMPLATE_112 };
         let m = roi.dst_from_src(112, 112, ResizeMode::Stretch).unwrap();
         for (a, b) in m.0.iter().zip(Affine2::IDENTITY.0.iter()) {
             assert!(close(*a, *b), "{m:?}");

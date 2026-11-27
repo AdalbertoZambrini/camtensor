@@ -7,7 +7,7 @@
 //! Times (GPU time via CUDA events, averaged over many launches):
 //! * 1080p NV12 -> 640x640 f16 NCHW letterbox (YOLO input);
 //! * 1080p NV12 -> 640x640 f32 NCHW letterbox;
-//! * 1080p NV12 -> 32 x 112x112 f32 ArcFace-style crops in one launch.
+//! * 1080p NV12 -> 32 x 112x112 f32 keypoint-aligned crops in one launch.
 
 use camtensor_core::{
     Affine2, ColorSpec, DType, FrameDesc, Normalize, PixelFormat, Roi, TensorSpec,
@@ -76,7 +76,7 @@ fn main() -> camtensor_core::Result<()> {
                 [x + 41.0, 300.0 + 92.0],
                 [x + 70.0, 300.0 + 92.0],
             ];
-            let m = Roi::Landmarks { points: pts }.dst_from_src(112, 112, spec.resize).unwrap();
+            let m = Roi::Keypoints { points: pts }.dst_from_src(112, 112, spec.resize).unwrap();
             Affine2::sampling_matrix(&m).unwrap()
         })
         .collect();

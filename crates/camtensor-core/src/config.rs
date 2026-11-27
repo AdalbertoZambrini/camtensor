@@ -429,8 +429,8 @@ outputs:
     tensor: { width: 640, height: 640, dtype: f16, resize: letterbox, normalize: unit }
     batch: { max_size: 8, max_wait_ms: 10 }
     keep_frame: true
-  faces:
-    tensor: { width: 112, height: 112, normalize: arcface, resize: stretch }
+  crops:
+    tensor: { width: 112, height: 112, normalize: symmetric, resize: stretch }
 streams:
   - id: cam1
     url: rtsp://127.0.0.1:8554/cam1

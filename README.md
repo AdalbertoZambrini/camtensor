@@ -36,9 +36,9 @@ camtensor on NVDEC keeps **48 full-HD cameras in real time on less than one CPU 
 - **RTSP ingest:** H.264, H.265 and MJPEG over TCP or UDP. Reconnects with back-off, takes the capture time from RTCP, and drops frames until the next keyframe when the consumer falls behind.
 - **MediaMTX integration:** discovers paths through its API (glob filters) and reacts when publishers appear or disappear. It also works with any RTSP camera directly.
 - **Hardware decode:** NVDEC through a runtime-loaded `nvcuvid`, so frames never leave the GPU. CPU fallback uses a runtime-loaded libavcodec (FFmpeg 5–8) or a pure-Rust MJPEG decoder. No video library is linked at build time.
-- **Fused preprocessing:** one pass per output pixel covers colour conversion (BT.601/709, limited/full range), resize, letterbox, crop and arbitrary affine warps. It also handles normalisation presets (`unit`, `imagenet`, `arcface`, custom), `u8`/`f16`/`f32` output, NCHW/NHWC layout and RGB/BGR/GRAY channel order. CUDA kernel and SIMD-friendly CPU code implement the same math.
+- **Fused preprocessing:** one pass per output pixel covers colour conversion (BT.601/709, limited/full range), resize, letterbox, crop and arbitrary affine warps. It also handles normalisation presets (`unit`, `imagenet`, `symmetric`, custom), `u8`/`f16`/`f32` output, NCHW/NHWC layout and RGB/BGR/GRAY channel order. CUDA kernel and SIMD-friendly CPU code implement the same math.
 - **Multi-camera batching:** batches close when full or at a deadline. A static batch size can be padded, backpressure is configurable (`drop_oldest`, `latest_only`, `block`), and buffer pools are recycled.
-- **Face-recognition helpers:** keep the full-resolution frame, then cut **ArcFace-aligned crops from 5 landmarks** (or boxes, or affine matrices) on the GPU in one launch.
+- **Region crops for multi-stage pipelines:** keep the full-resolution frame, then cut **boxes, affine warps or crops aligned from 5 keypoints** for a second model, on the GPU, in one launch, with no frame leaving the device.
 - **Compressed-domain motion gating:** packet sizes are read without decoding. Idle cameras decode keyframes only, and the buffered GOP is replayed the moment activity starts. This cut CPU by 54% on a mostly static scene.
 - **Everywhere:** Rust crate, Python wheel (`abi3`, 1.6 MB, DLPack / `__cuda_array_interface__` / NumPy), C ABI, a standalone service (REST control plane and shared-memory data plane), and a CLI (`probe`, `run`, `serve`, `bench`). Prometheus metrics are built in.
 - **Linux and Windows,** on x86_64 and ARM64. The GPU path needs only the NVIDIA driver at runtime; the CPU path runs on any processor.
@@ -85,18 +85,22 @@ mediamtx:                       # optional auto-discovery
   outputs: [detector]
 ```
 
-## Face recognition in two stages
+## Two-stage pipelines
+
+Your first model returns coordinates. camtensor cuts, aligns and normalises those regions from the full-resolution frame, which never leaves the GPU; only the coordinates travel back.
 
 ```python
-eng.add_output("detector", 640, 640, dtype="f16", keep_frame=True)
-for batch in eng.batches("detector"):
-    dets = detector(torch.from_dlpack(batch))                    # your SCRFD / RetinaFace / YOLO-face
+eng.add_output("stage1", 640, 640, dtype="f16", keep_frame=True)
+for batch in eng.batches("stage1"):
+    results = first_model(torch.from_dlpack(batch))             # boxes and/or 5 keypoints per object
     for i, item in enumerate(batch.items):
-        landmarks = [map_to_source(item, kps) for kps in dets[i].keypoints]  # 5x2 points each
-        if landmarks:
-            faces = eng.crop(item.frame, landmarks, 112, 112, normalize="arcface")
-            emb = arcface(torch.from_dlpack(faces))              # [F, 3, 112, 112], aligned on the GPU
+        pts = [[item.to_source(x, y) for x, y in kp] for kp in results[i].keypoints]
+        if pts:
+            crops = eng.crop(item.frame, pts, 112, 112, normalize="symmetric")  # aligned, [K, 3, 112, 112]
+            out = second_model(torch.from_dlpack(crops))
 ```
+
+See [examples/python/keypoint_crops.py](examples/python/keypoint_crops.py).
 
 ## Rust
 
@@ -124,7 +128,7 @@ Consumers in other processes receive batches through shared memory (`camtensor-c
 
 | Crate | Role |
 |---|---|
-| `camtensor-core` | Output contract, configuration, geometry (letterbox, affine, ArcFace template) |
+| `camtensor-core` | Output contract, configuration, geometry (letterbox, affine, keypoint alignment) |
 | `camtensor-ingest` | RTSP client (retina), reconnects, Annex B conversion |
 | `camtensor-bitstream` | H.264/H.265/JPEG parsing, motion gate |
 | `camtensor-decode` | NVDEC, libavcodec and zune-jpeg decoders |
