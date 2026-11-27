@@ -1,7 +1,6 @@
 //! Service test: REST control plane + shared-memory data plane.
 
 #[path = "../../camtensor-ingest/tests/common/mod.rs"]
-#[allow(dead_code)]
 mod common;
 
 use std::io::{Read, Write};

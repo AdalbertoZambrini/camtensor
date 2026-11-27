@@ -299,10 +299,11 @@ async fn subscriber(engine: Engine, sock: TcpStream, shm_dir: PathBuf) -> std::i
     }
     let reader = tokio::spawn(async move {
         while let Ok(Some(line)) = lines.next_line().await {
-            if let Ok(ClientMsg::Release { slot }) = serde_json::from_str::<ClientMsg>(&line) {
-                if slot < slots && free_tx.send(slot).is_err() {
-                    break;
-                }
+            if let Ok(ClientMsg::Release { slot }) = serde_json::from_str::<ClientMsg>(&line)
+                && slot < slots
+                && free_tx.send(slot).is_err()
+            {
+                break;
             }
         }
     });

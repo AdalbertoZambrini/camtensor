@@ -199,7 +199,7 @@ impl Tensor {
         }
         let bytes = self.as_bytes()?;
         let ptr = bytes.as_ptr();
-        if (ptr as usize) % std::mem::align_of::<T>() != 0 {
+        if !(ptr as usize).is_multiple_of(std::mem::align_of::<T>()) {
             return None;
         }
         // SAFETY: alignment checked above, length is a multiple of the

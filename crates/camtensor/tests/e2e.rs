@@ -5,7 +5,6 @@
 //! `CAMTENSOR_FFMPEG_DIR` to point at shared libavcodec for the CPU decoder.
 
 #[path = "../../camtensor-ingest/tests/common/mod.rs"]
-#[allow(dead_code)]
 mod common;
 
 use std::collections::HashMap;

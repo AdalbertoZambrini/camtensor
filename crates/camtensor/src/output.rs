@@ -509,7 +509,7 @@ mod tests {
         assert_eq!(bytes[48], 3);
         let b2 = out.recv(Some(Duration::from_millis(100))).unwrap();
         assert_eq!(b2.items()[0].meta.seq, 3);
-        assert!(matches!(out.try_recv(), None));
+        assert!(out.try_recv().is_none());
     }
 
     #[test]

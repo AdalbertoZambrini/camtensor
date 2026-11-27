@@ -322,11 +322,11 @@ impl Worker {
                 fps: None,
             });
         }
-        if self.decoder.is_none() {
-            if let Err(e) = self.open_decoder() {
-                self.record_error(&e);
-                return;
-            }
+        if self.decoder.is_none()
+            && let Err(e) = self.open_decoder()
+        {
+            self.record_error(&e);
+            return;
         }
         let now = now_ns();
         let gate = self.gate.get_or_insert_with(|| Gate::new(self.shared.cfg.gating, pkt.codec));
@@ -398,10 +398,10 @@ impl Worker {
     }
 
     fn take_info(&mut self, pts: i64) -> PacketInfo {
-        if let Some(pos) = self.pending.iter().position(|p| p.pts == pts) {
-            if let Some(i) = self.pending.remove(pos) {
-                return i;
-            }
+        if let Some(pos) = self.pending.iter().position(|p| p.pts == pts)
+            && let Some(i) = self.pending.remove(pos)
+        {
+            return i;
         }
         PacketInfo { pts, seq: 0, keyframe: false, recv_time_ns: now_ns(), capture_time_ns: None }
     }
@@ -482,10 +482,10 @@ impl Worker {
                     keep.then(|| src.clone()),
                 ))
             });
-            if let Err(e) = res {
-                if !matches!(e, Error::Closed) {
-                    self.record_error(&e);
-                }
+            if let Err(e) = res
+                && !matches!(e, Error::Closed)
+            {
+                self.record_error(&e);
             }
         }
     }

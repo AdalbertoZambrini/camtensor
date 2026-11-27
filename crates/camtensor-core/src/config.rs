@@ -53,7 +53,7 @@ impl Default for EngineConfig {
 impl EngineConfig {
     /// Parses YAML (JSON is valid YAML too).
     pub fn from_yaml(s: &str) -> Result<Self> {
-        let cfg: Self = serde_norway::from_str(s).map_err(|e| Error::config(e))?;
+        let cfg: Self = serde_norway::from_str(s).map_err(Error::config)?;
         cfg.validate()?;
         Ok(cfg)
     }
@@ -207,10 +207,10 @@ impl OutputConfig {
         if self.queue_depth == 0 {
             return Err(Error::config("queue_depth must be >= 1"));
         }
-        if let Some(f) = self.max_fps {
-            if !(f > 0.0) {
-                return Err(Error::config("max_fps must be > 0"));
-            }
+        if let Some(f) = self.max_fps
+            && (f.is_nan() || f <= 0.0)
+        {
+            return Err(Error::config("max_fps must be > 0"));
         }
         Ok(())
     }

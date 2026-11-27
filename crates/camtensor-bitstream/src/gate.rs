@@ -506,7 +506,7 @@ mod tests {
         c.warmup_frames = 50;
         let mut g = Gate::new(c, Codec::H264);
         let size = |s: u64, motion: bool| -> usize {
-            let base = if s % 2 == 0 { 90 } else { 1500 };
+            let base = if s.is_multiple_of(2) { 90 } else { 1500 };
             if motion { base * 5 } else { base }
         };
         let mut out = Vec::new();

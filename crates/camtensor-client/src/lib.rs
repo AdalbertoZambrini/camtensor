@@ -194,7 +194,7 @@ impl RemoteBatch<'_> {
             return None;
         }
         let d = self.data();
-        if d.as_ptr() as usize % 4 != 0 {
+        if !(d.as_ptr() as usize).is_multiple_of(4) {
             return None;
         }
         // SAFETY: alignment checked, length is a multiple of 4 by construction,

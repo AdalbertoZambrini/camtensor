@@ -264,3 +264,6 @@ mod tests {
         assert!(end.is_ok());
     }
 }
+
+// Version pin only (see Cargo.toml).
+use pretty_hex as _;
