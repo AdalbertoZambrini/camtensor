@@ -312,6 +312,7 @@ dependencies = [
  "axum",
  "camtensor",
  "camtensor-client",
+ "camtensor-core",
  "memmap2",
  "serde",
  "serde_json",
