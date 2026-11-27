@@ -64,6 +64,7 @@ dependencies = [
 name = "camtensor-decode"
 version = "0.1.0"
 dependencies = [
+ "bytes",
  "camtensor-core",
  "camtensor-cuda",
  "libloading",
