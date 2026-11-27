@@ -150,9 +150,10 @@ fn parse_response(buf: &[u8]) -> Result<String> {
     if status != "200" {
         return Err(Error::Ingest(format!("HTTP {status}")));
     }
-    let chunked = head
-        .lines()
-        .any(|l| l.to_ascii_lowercase().starts_with("transfer-encoding:") && l.to_ascii_lowercase().contains("chunked"));
+    let chunked = head.lines().any(|l| {
+        l.to_ascii_lowercase().starts_with("transfer-encoding:")
+            && l.to_ascii_lowercase().contains("chunked")
+    });
     let body = if chunked { dechunk(body)? } else { body.to_vec() };
     String::from_utf8(body).map_err(|_| Error::Ingest("non UTF-8 body".into()))
 }
@@ -183,7 +184,9 @@ fn base64(data: &[u8]) -> String {
     const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut s = String::with_capacity(data.len().div_ceil(3) * 4);
     for c in data.chunks(3) {
-        let n = (c[0] as u32) << 16 | (*c.get(1).unwrap_or(&0) as u32) << 8 | *c.get(2).unwrap_or(&0) as u32;
+        let n = (c[0] as u32) << 16
+            | (*c.get(1).unwrap_or(&0) as u32) << 8
+            | *c.get(2).unwrap_or(&0) as u32;
         s.push(T[(n >> 18) as usize & 63] as char);
         s.push(T[(n >> 12) as usize & 63] as char);
         s.push(if c.len() > 1 { T[(n >> 6) as usize & 63] as char } else { '=' });

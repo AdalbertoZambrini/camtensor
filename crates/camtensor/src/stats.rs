@@ -77,25 +77,65 @@ impl EngineStats {
         let st = |f: &dyn Fn(&StreamStats) -> f64| -> Vec<(String, f64)> {
             self.streams.iter().map(|x| (format!("stream=\"{}\"", esc(&x.id)), f(x))).collect()
         };
-        metric("stream_connected", "1 when the RTSP session is playing", "gauge", st(&|x| x.connected as u8 as f64));
+        metric(
+            "stream_connected",
+            "1 when the RTSP session is playing",
+            "gauge",
+            st(&|x| x.connected as u8 as f64),
+        );
         metric("stream_packets_total", "Packets received", "counter", st(&|x| x.packets as f64));
         metric("stream_bytes_total", "Bytes received", "counter", st(&|x| x.bytes as f64));
-        metric("stream_decoded_packets_total", "Packets decoded", "counter", st(&|x| x.decoded_packets as f64));
-        metric("stream_skipped_packets_total", "Packets skipped by gating", "counter", st(&|x| x.skipped_packets as f64));
+        metric(
+            "stream_decoded_packets_total",
+            "Packets decoded",
+            "counter",
+            st(&|x| x.decoded_packets as f64),
+        );
+        metric(
+            "stream_skipped_packets_total",
+            "Packets skipped by gating",
+            "counter",
+            st(&|x| x.skipped_packets as f64),
+        );
         metric("stream_frames_total", "Frames decoded", "counter", st(&|x| x.frames as f64));
-        metric("stream_decode_errors_total", "Decoder errors", "counter", st(&|x| x.decode_errors as f64));
-        metric("stream_ingest_dropped_total", "Packets dropped by ingest backpressure", "counter", st(&|x| x.ingest_dropped as f64));
+        metric(
+            "stream_decode_errors_total",
+            "Decoder errors",
+            "counter",
+            st(&|x| x.decode_errors as f64),
+        );
+        metric(
+            "stream_ingest_dropped_total",
+            "Packets dropped by ingest backpressure",
+            "counter",
+            st(&|x| x.ingest_dropped as f64),
+        );
         metric("stream_reconnects_total", "Reconnections", "counter", st(&|x| x.reconnects as f64));
         metric("stream_input_fps", "Received packets per second", "gauge", st(&|x| x.input_fps));
         metric("stream_decode_fps", "Decoded frames per second", "gauge", st(&|x| x.decode_fps));
-        metric("stream_latency_ms", "Average receive-to-ready latency", "gauge", st(&|x| x.avg_latency_ms));
+        metric(
+            "stream_latency_ms",
+            "Average receive-to-ready latency",
+            "gauge",
+            st(&|x| x.avg_latency_ms),
+        );
         let out = |f: &dyn Fn(&OutputStats) -> f64| -> Vec<(String, f64)> {
             self.outputs.iter().map(|(k, v)| (format!("output=\"{}\"", esc(k)), f(v))).collect()
         };
         metric("output_batches_total", "Batches delivered", "counter", out(&|x| x.batches as f64));
         metric("output_images_total", "Images delivered", "counter", out(&|x| x.images as f64));
-        metric("output_dropped_images_total", "Images dropped by backpressure", "counter", out(&|x| x.dropped_images as f64));
-        metric("output_queued_batches", "Batches waiting for the consumer", "gauge", out(&|x| x.queued as f64));
+        metric(
+            "output_dropped_images_total",
+            "Images dropped by backpressure",
+            "counter",
+            out(&|x| x.dropped_images as f64),
+        );
+        metric(
+            "output_queued_batches",
+            "Batches waiting for the consumer",
+            "gauge",
+            out(&|x| x.queued as f64),
+        );
         s
     }
 }
@@ -107,7 +147,9 @@ fn esc(s: &str) -> String {
 /// Removes `user:pass@` from a URL for display.
 pub fn redact_url(url: &str) -> String {
     match (url.find("://"), url.rfind('@')) {
-        (Some(scheme), Some(at)) if at > scheme => format!("{}{}", &url[..scheme + 3], &url[at + 1..]),
+        (Some(scheme), Some(at)) if at > scheme => {
+            format!("{}{}", &url[..scheme + 3], &url[at + 1..])
+        }
         _ => url.to_string(),
     }
 }

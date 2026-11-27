@@ -10,7 +10,7 @@ repository.workspace = true
 authors.workspace = true
 
 [lib]
-name = "camtensor"
+name = "camtensor_c"
 crate-type = ["cdylib", "staticlib", "rlib"]
 
 [features]

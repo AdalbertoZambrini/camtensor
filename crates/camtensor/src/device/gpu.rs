@@ -3,7 +3,9 @@
 use std::sync::Arc;
 
 use camtensor_core::{Affine2, Device, Error, Frame, FrameData, Result, TensorSpec};
-use camtensor_cuda::{BufferPool, CudaDevice, CudaStream, DeviceBuffer, Preprocessor, SampleItem, SourceImage};
+use camtensor_cuda::{
+    BufferPool, CudaDevice, CudaStream, DeviceBuffer, Preprocessor, SampleItem, SourceImage,
+};
 
 use crate::tensor::TensorStorage;
 

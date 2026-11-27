@@ -294,7 +294,8 @@ impl Engine {
         if let Some(d) = self.inner.discovery.lock().take() {
             d.stop();
         }
-        let streams: Vec<StreamHandle> = self.inner.streams.lock().drain().map(|(_, h)| h).collect();
+        let streams: Vec<StreamHandle> =
+            self.inner.streams.lock().drain().map(|(_, h)| h).collect();
         drop(streams);
         for o in self.inner.outputs.read().values() {
             o.close();

@@ -289,7 +289,9 @@ impl Worker {
         let opts = DecoderOptions {
             pref: self.pref,
             device: self.backend.device(),
-            threads: 0,
+            // One thread per stream: frame threading adds (threads - 1) frames
+            // of latency; streams already run in parallel.
+            threads: 1,
             surfaces: 8,
         };
         let d = camtensor_decode::open(params, &opts)?;
@@ -301,7 +303,8 @@ impl Worker {
     }
 
     fn on_packet(&mut self, pkt: EncodedPacket) {
-        let c = &self.shared.counters;
+        let shared = self.shared.clone();
+        let c = &shared.counters;
         c.packets.fetch_add(1, Ordering::Relaxed);
         c.bytes.fetch_add(pkt.data.len() as u64, Ordering::Relaxed);
         self.win_packets += 1;

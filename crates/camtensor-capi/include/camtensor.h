@@ -2,7 +2,7 @@
  * camtensor C API: camera streams to inference-ready tensors.
  * SPDX-License-Identifier: Apache-2.0
  *
- * Link against the `camtensor` shared library (camtensor.dll / libcamtensor.so)
+ * Link against the `camtensor_c` shared library (camtensor_c.dll / libcamtensor_c.so)
  * built from crates/camtensor-capi.
  *
  *   ct_engine *e = ct_engine_from_file("camtensor.yaml");
