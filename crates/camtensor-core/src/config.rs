@@ -53,7 +53,7 @@ impl Default for EngineConfig {
 impl EngineConfig {
     /// Parses YAML (JSON is valid YAML too).
     pub fn from_yaml(s: &str) -> Result<Self> {
-        let cfg: Self = serde_norway::from_str(s).map_err(|e| Error::config(e))?;
+        let cfg: Self = serde_norway::from_str(s).map_err(Error::config)?;
         cfg.validate()?;
         Ok(cfg)
     }
@@ -207,10 +207,10 @@ impl OutputConfig {
         if self.queue_depth == 0 {
             return Err(Error::config("queue_depth must be >= 1"));
         }
-        if let Some(f) = self.max_fps {
-            if !(f > 0.0) {
-                return Err(Error::config("max_fps must be > 0"));
-            }
+        if let Some(f) = self.max_fps
+            && (f.is_nan() || f <= 0.0)
+        {
+            return Err(Error::config("max_fps must be > 0"));
         }
         Ok(())
     }
@@ -252,6 +252,10 @@ pub struct GatingConfig {
     pub threshold: f32,
     /// Consecutive active packets required to switch to full decoding.
     pub trigger_frames: u32,
+    /// Number of recent non-key packets averaged before scoring (H.264/H.265).
+    /// Smooths the size alternation of B/P frame patterns; `1` scores every
+    /// packet on its own.
+    pub window: u32,
     /// Keep decoding everything for this long after the last activity.
     pub hold_ms: u64,
     /// Packets used to learn the idle baseline before gating kicks in
@@ -267,6 +271,7 @@ impl Default for GatingConfig {
             mode: GatingMode::Always,
             threshold: 1.6,
             trigger_frames: 2,
+            window: 8,
             hold_ms: 2000,
             warmup_frames: 50,
             idle_fps: 1.0,

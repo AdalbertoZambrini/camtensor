@@ -1,0 +1,17 @@
+# Example configuration: two outputs fed by every camera MediaMTX publishes.
+device: auto
+outputs:
+  detector:
+    tensor: { width: 640, height: 640, dtype: f16, resize: letterbox, normalize: unit }
+    batch: { max_size: 8, max_wait_ms: 15 }
+    keep_frame: true
+  preview:
+    tensor: { width: 320, height: 180, dtype: u8, layout: nhwc, color: bgr, resize: stretch }
+    max_fps: 2
+    backpressure: latest_only
+mediamtx:
+  api_url: http://127.0.0.1:9997
+  rtsp_url: rtsp://127.0.0.1:8554
+  paths: ["*"]
+  outputs: [detector, preview]
+  gating: { mode: auto }

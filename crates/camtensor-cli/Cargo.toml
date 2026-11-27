@@ -1,6 +1,6 @@
 [package]
 name = "camtensor-cli"
-description = "camtensor command line tool"
+description = "camtensor command line tool: probe cameras, run pipelines, serve, benchmark"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -10,8 +10,27 @@ authors.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
+[[bin]]
+name = "camtensor"
+path = "src/main.rs"
+
+[features]
+default = ["cuda", "ffmpeg", "jpeg"]
+cuda = ["camtensor/cuda"]
+ffmpeg = ["camtensor/ffmpeg"]
+jpeg = ["camtensor/jpeg"]
+
 [dependencies]
-camtensor-core.workspace = true
+camtensor = { workspace = true, default-features = false }
+camtensor-service.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sysinfo = { version = "0.40", default-features = false, features = ["system"] }
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
 
 [lints]
 workspace = true

@@ -119,14 +119,17 @@ function Invoke-Stop {
   $pids = @(Read-Pids)
   if ($pids.Count -eq 0) { Write-Host "not running (no $PidFile)"; return }
   # publishers first, MediaMTX last
+  $stopped = @()
   foreach ($e in @($pids | Where-Object Name -ne 'mediamtx') + @($pids | Where-Object Name -eq 'mediamtx')) {
     $p = Get-OurProcess $e.Pid
     if ($p) {
       Stop-Process -Id $e.Pid -Force -ErrorAction SilentlyContinue
       Write-Host "stopped $($e.Name) (pid $($e.Pid))"
+      $stopped += $p
     }
   }
-  foreach ($e in $pids) { try { Wait-Process -Id $e.Pid -Timeout 5 -ErrorAction SilentlyContinue } catch {} }
+  # Wait only for processes we stopped: a stale PID may belong to anything now.
+  foreach ($p in $stopped) { try { [void]$p.WaitForExit(5000) } catch {} }
   Remove-Item -Force $PidFile
 }
 

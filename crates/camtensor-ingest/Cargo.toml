@@ -11,6 +11,8 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
+# retina 0.4.22 does not build with pretty-hex 0.4.3; pin until upstream fixes it.
+pretty-hex = "=0.4.1"
 camtensor-core.workspace = true
 camtensor-bitstream.workspace = true
 bytes.workspace = true

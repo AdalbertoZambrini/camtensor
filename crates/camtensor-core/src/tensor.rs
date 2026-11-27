@@ -177,7 +177,7 @@ impl TryFrom<NormalizeRepr> for Normalize {
                 Normalize::preset(&p).ok_or_else(|| format!("unknown normalize preset '{p}'"))
             }
             NormalizeRepr::Custom { scale, mean, std } => {
-                if std.iter().any(|s| *s == 0.0) {
+                if std.contains(&0.0) {
                     return Err("normalize.std must not contain zeros".into());
                 }
                 Ok(Normalize { scale, mean, std })

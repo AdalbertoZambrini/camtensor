@@ -1,17 +1,30 @@
 [package]
 name = "camtensor-py"
 description = "Python bindings for camtensor"
+publish = false
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-keywords.workspace = true
-categories.workspace = true
+
+[lib]
+name = "_camtensor"
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = ["cuda", "ffmpeg", "jpeg"]
+cuda = ["camtensor/cuda"]
+ffmpeg = ["camtensor/ffmpeg"]
+jpeg = ["camtensor/jpeg"]
 
 [dependencies]
-camtensor-core.workspace = true
+camtensor = { workspace = true, default-features = false }
+pyo3 = { version = "0.30", features = ["abi3-py39", "extension-module"] }
+serde.workspace = true
+serde_json.workspace = true
+serde_norway.workspace = true
 
 [lints]
 workspace = true
