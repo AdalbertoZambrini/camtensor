@@ -46,5 +46,5 @@ pub fn driver_version() -> Option<(u32, u32)> {
     let mut v = 0;
     // SAFETY: valid out pointer; cuInit has succeeded.
     let r = unsafe { (api.cuDriverGetVersion)(&mut v) };
-    (r == 0).then(|| ((v / 1000) as u32, ((v % 1000) / 10) as u32))
+    (r == 0).then_some(((v / 1000) as u32, ((v % 1000) / 10) as u32))
 }

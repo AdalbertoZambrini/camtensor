@@ -97,8 +97,8 @@ impl Module {
         let cname = CString::new(name).map_err(|_| Error::cuda("kernel name contains NUL"))?;
         let _g = self.device.bind()?;
         let mut raw: CUfunction = std::ptr::null_mut();
-        // SAFETY: valid module, NUL-terminated name, valid out pointer.
         check(
+            // SAFETY: valid module, NUL-terminated name, valid out pointer.
             unsafe { (api.cuModuleGetFunction)(&mut raw, self.raw, cname.as_ptr()) },
             "cuModuleGetFunction",
         )?;
@@ -125,10 +125,10 @@ impl Module {
     ) -> Result<()> {
         let api = driver_api()?;
         let _g = self.device.bind()?;
-        // SAFETY: forwarded caller contract; `params` is a valid array of
-        // parameter pointers for the duration of the call (the driver copies
-        // parameter values at launch).
         check(
+            // SAFETY: forwarded caller contract; `params` is a valid array of
+            // parameter pointers for the duration of the call (the driver copies
+            // parameter values at launch).
             unsafe {
                 (api.cuLaunchKernel)(
                     func.raw,

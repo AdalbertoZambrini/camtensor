@@ -1,6 +1,7 @@
 //! GPU tests of the fused preprocessing kernel against a straightforward CPU
 //! reference of the documented semantics. Skipped when no CUDA device is
 //! present.
+#![allow(clippy::too_many_arguments, clippy::needless_range_loop)]
 
 use std::sync::Arc;
 

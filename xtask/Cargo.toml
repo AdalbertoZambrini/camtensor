@@ -12,7 +12,6 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
-camtensor-core.workspace = true
 libloading.workspace = true
 
 [lints]

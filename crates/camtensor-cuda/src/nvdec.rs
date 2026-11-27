@@ -5,9 +5,10 @@
 //! RAII handles, C callbacks that never unwind, and parser-provided picture
 //! parameters that cannot be forged.
 
+use std::collections::HashMap;
 use std::ffi::{c_int, c_uint, c_ulong, c_void};
 use std::panic::{AssertUnwindSafe, catch_unwind};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock};
 
 use camtensor_core::{Error, Result};
 
@@ -56,7 +57,7 @@ pub struct DecoderCaps {
 impl DecoderCaps {
     /// `true` when `format` is in the output mask.
     pub fn supports_output(&self, format: cudaVideoSurfaceFormat) -> bool {
-        format >= 0 && format < 16 && self.output_format_mask & (1 << format) != 0
+        (0..16).contains(&format) && self.output_format_mask & (1 << format) != 0
     }
 
     /// `true` when a `width x height` stream fits the limits.
@@ -139,6 +140,27 @@ pub struct DecoderConfig {
     pub deinterlace: bool,
 }
 
+/// Process-wide NVDEC context lock of each device (`cuvidCtxLockCreate`),
+/// shared by all decoders on that device. The driver takes it around the
+/// CUDA work it does on our behalf, which makes concurrent decoders on
+/// different threads safe. Created once and never destroyed.
+fn context_lock(device: &CudaDevice) -> Result<sys::CUvideoctxlock> {
+    static LOCKS: OnceLock<Mutex<HashMap<u32, usize>>> = OnceLock::new();
+    let api = api()?;
+    let mut map = LOCKS.get_or_init(Default::default).lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(&l) = map.get(&device.ordinal()) {
+        return Ok(l as sys::CUvideoctxlock);
+    }
+    let mut lock: sys::CUvideoctxlock = std::ptr::null_mut();
+    check(
+        // SAFETY: valid out pointer and retained primary context.
+        unsafe { (api.cuvidCtxLockCreate)(&mut lock, device.raw_context()) },
+        "cuvidCtxLockCreate",
+    )?;
+    map.insert(device.ordinal(), lock as usize);
+    Ok(lock)
+}
+
 /// An NVDEC decoder instance (`cuvidCreateDecoder`).
 pub struct VideoDecoder {
     raw: sys::CUvideodecoder,
@@ -189,10 +211,11 @@ impl VideoDecoder {
             ulNumOutputSurfaces: config.num_output_surfaces.max(1) as c_ulong,
             ..Default::default()
         };
+        info.vidLock = context_lock(device)?;
         let _g = device.bind()?;
         let mut raw: sys::CUvideodecoder = std::ptr::null_mut();
-        // SAFETY: context current; `info` is fully initialised with a null
-        // context lock; valid out pointer.
+        // SAFETY: context current; `info` is fully initialised with the
+        // device's context lock (never destroyed); valid out pointer.
         check(unsafe { (api.cuvidCreateDecoder)(&mut raw, &mut info) }, "cuvidCreateDecoder")?;
         Ok(Self { raw, device: device.clone(), config: *config })
     }
@@ -243,9 +266,9 @@ impl VideoDecoder {
         };
         let mut ptr: u64 = 0;
         let mut pitch: c_uint = 0;
-        // SAFETY: context current; valid decoder and out pointers; the
-        // driver validates the picture index.
         check(
+            // SAFETY: context current; valid decoder and out pointers; the
+            // driver validates the picture index.
             unsafe {
                 (api.cuvidMapVideoFrame64)(
                     self.raw,

@@ -59,8 +59,8 @@ impl CudaStream {
         let api = driver_api()?;
         let _g = device.bind()?;
         let mut raw: CUstream = std::ptr::null_mut();
-        // SAFETY: a context is current; valid out pointer.
         check(
+            // SAFETY: a context is current; valid out pointer.
             unsafe { (api.cuStreamCreate)(&mut raw, driver::CU_STREAM_NON_BLOCKING) },
             "cuStreamCreate",
         )?;
@@ -196,8 +196,8 @@ impl CudaStream {
         check_range(dst.byte_len(), offset, len)?;
         let api = driver_api()?;
         let _g = self.device.bind()?;
-        // SAFETY: range inside a live allocation.
         check(
+            // SAFETY: range inside a live allocation.
             unsafe {
                 (api.cuMemsetD8Async)(dst.device_ptr() + offset as u64, value, len, self.raw)
             },
@@ -216,8 +216,8 @@ impl CudaStream {
         }
         let api = driver_api()?;
         let _g = self.device.bind()?;
-        // SAFETY: the caller upholds the pointer contract.
         check(
+            // SAFETY: the caller upholds the pointer contract.
             unsafe { (api.cuMemcpyHtoDAsync)(dst, src as *const c_void, len, self.raw) },
             "cuMemcpyHtoDAsync",
         )
@@ -234,8 +234,8 @@ impl CudaStream {
         }
         let api = driver_api()?;
         let _g = self.device.bind()?;
-        // SAFETY: the caller upholds the pointer contract.
         check(
+            // SAFETY: the caller upholds the pointer contract.
             unsafe { (api.cuMemcpyDtoHAsync)(dst as *mut c_void, src, len, self.raw) },
             "cuMemcpyDtoHAsync",
         )
@@ -357,8 +357,8 @@ impl CudaEvent {
         let api = driver_api()?;
         let _g = self.device.bind()?;
         let mut ms = 0f32;
-        // SAFETY: valid handles, valid out pointer.
         check(
+            // SAFETY: valid handles, valid out pointer.
             unsafe { (api.cuEventElapsedTime)(&mut ms, start.raw, self.raw) },
             "cuEventElapsedTime",
         )?;

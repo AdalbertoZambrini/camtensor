@@ -83,8 +83,8 @@ impl CudaDevice {
         check(unsafe { (api.cuDeviceGet)(&mut dev, ordinal as c_int) }, "cuDeviceGet")?;
 
         let mut name_buf = [0 as c_char; 256];
-        // SAFETY: the buffer is 256 bytes and the driver writes at most `len`.
         check(
+            // SAFETY: the buffer is 256 bytes and the driver writes at most `len`.
             unsafe { (api.cuDeviceGetName)(name_buf.as_mut_ptr(), name_buf.len() as c_int, dev) },
             "cuDeviceGetName",
         )?;
@@ -109,8 +109,8 @@ impl CudaDevice {
         check(unsafe { (api.cuDeviceTotalMem)(&mut total, dev) }, "cuDeviceTotalMem")?;
 
         let mut ctx: CUcontext = std::ptr::null_mut();
-        // SAFETY: valid out pointer and device handle; released in Drop.
         check(
+            // SAFETY: valid out pointer and device handle; released in Drop.
             unsafe { (api.cuDevicePrimaryCtxRetain)(&mut ctx, dev) },
             "cuDevicePrimaryCtxRetain",
         )?;
@@ -141,6 +141,17 @@ impl CudaDevice {
         let _g = self.bind()?;
         // SAFETY: a context is current.
         check(unsafe { (api.cuCtxSynchronize)() }, "cuCtxSynchronize")
+    }
+
+    /// Blocks until work queued on the legacy default (NULL) stream has
+    /// completed. Some driver components (e.g. NVDEC JPEG post-processing)
+    /// enqueue there regardless of the stream they are given, and
+    /// non-blocking streams do not order against it.
+    pub fn synchronize_default_stream(&self) -> Result<()> {
+        let api = driver_api()?;
+        let _g = self.bind()?;
+        // SAFETY: the NULL stream is always valid while a context is current.
+        check(unsafe { (api.cuStreamSynchronize)(std::ptr::null_mut()) }, "cuStreamSynchronize")
     }
 
     /// `(free, total)` device memory in bytes.

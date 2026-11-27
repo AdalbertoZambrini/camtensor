@@ -57,9 +57,9 @@ impl DeviceBuffer {
         if len > 0 {
             let api = driver_api()?;
             let _g = device.bind()?;
-            // SAFETY: the range is our allocation; null stream = legacy
-            // default stream, followed by a context sync below.
             check(
+                // SAFETY: the range is our allocation; null stream = legacy
+                // default stream, followed by a context sync below.
                 unsafe { (api.cuMemsetD8Async)(b.ptr, 0, len, std::ptr::null_mut()) },
                 "cuMemsetD8Async",
             )?;
@@ -80,9 +80,9 @@ impl DeviceBuffer {
         }
         let api = driver_api()?;
         let _g = self.device.bind()?;
-        // SAFETY: the range is inside our allocation; `data` is valid for
-        // the duration of this synchronous call.
         check(
+            // SAFETY: the range is inside our allocation; `data` is valid for
+            // the duration of this synchronous call.
             unsafe {
                 (api.cuMemcpyHtoD)(
                     self.ptr + offset as u64,
@@ -104,8 +104,8 @@ impl DeviceBuffer {
         }
         let api = driver_api()?;
         let _g = self.device.bind()?;
-        // SAFETY: range checked; `out` is valid for this synchronous call.
         check(
+            // SAFETY: range checked; `out` is valid for this synchronous call.
             unsafe {
                 (api.cuMemcpyDtoH)(
                     out.as_mut_ptr() as *mut c_void,
@@ -209,8 +209,8 @@ impl PinnedHostBuffer {
         let api = driver_api()?;
         let _g = device.bind()?;
         let mut p: *mut c_void = std::ptr::null_mut();
-        // SAFETY: context current; valid out pointer.
         check(
+            // SAFETY: context current; valid out pointer.
             unsafe { (api.cuMemHostAlloc)(&mut p, len, driver::CU_MEMHOSTALLOC_PORTABLE) },
             "cuMemHostAlloc",
         )?;

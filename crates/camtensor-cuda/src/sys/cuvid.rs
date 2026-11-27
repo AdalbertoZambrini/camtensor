@@ -6,7 +6,7 @@
 use std::ffi::{c_int, c_short, c_uint, c_ulong, c_void};
 use std::sync::OnceLock;
 
-use super::driver::{CUresult, CUstream};
+use super::driver::{CUcontext, CUresult, CUstream};
 use super::{dynamic_api, open_library};
 
 pub type CUvideodecoder = *mut c_void;
@@ -369,6 +369,8 @@ dynamic_api! {
         cuvidCreateVideoParser = "cuvidCreateVideoParser": fn(*mut CUvideoparser, *mut CUVIDPARSERPARAMS) -> CUresult;
         cuvidParseVideoData = "cuvidParseVideoData": fn(CUvideoparser, *mut CUVIDSOURCEDATAPACKET) -> CUresult;
         cuvidDestroyVideoParser = "cuvidDestroyVideoParser": fn(CUvideoparser) -> CUresult;
+        cuvidCtxLockCreate = "cuvidCtxLockCreate": fn(*mut CUvideoctxlock, CUcontext) -> CUresult;
+        cuvidCtxLockDestroy = "cuvidCtxLockDestroy": fn(CUvideoctxlock) -> CUresult;
     }
 }
 
