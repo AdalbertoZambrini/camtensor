@@ -43,7 +43,7 @@ pub fn tools(test: &str) -> Option<(PathBuf, PathBuf)> {
 }
 
 /// A child process killed and reaped on drop.
-pub struct Proc(Option<Child>);
+pub struct Proc(pub Option<Child>);
 
 impl Proc {
     pub fn kill(&mut self) {
