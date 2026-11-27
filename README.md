@@ -34,7 +34,7 @@ Video inference is often limited by everything that happens *before* the model r
 | OpenCV `VideoCapture` + NumPy | 156 (cannot keep up) | 762% | 2.4 GB |
 | **camtensor (NVDEC)** | **400 (real time)** | **25%** | **0.5 GB** |
 
-camtensor on NVDEC keeps **48 full-HD cameras in real time on less than one CPU core**. Methodology and more numbers are in [docs/benchmarks.md](docs/benchmarks.md).
+camtensor on NVDEC keeps **48 full-HD cameras in real time on less than one CPU core**. Methodology and more numbers are in [docs/benchmarks.md](docs/benchmarks.md). Validation covers emulated camera faults, PyTorch zero-copy and a 60-minute soak with no memory growth; see [docs/validation.md](docs/validation.md).
 
 ## Features
 
