@@ -95,6 +95,40 @@ jobs:
         shell: cmd
         run: cl /nologo /W4 /WX /Icrates/camtensor-capi/include examples/c/consumer.c target/release/camtensor_c.dll.lib /Fe:consumer.exe
 
+  deny:
+    name: cargo-deny (advisories, licences, sources)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check
+
+  coverage:
+    name: coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@cargo-llvm-cov
+      - name: Install FFmpeg and MediaMTX
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg libavcodec-dev libavformat-dev
+          curl -sL "https://github.com/bluenviron/mediamtx/releases/download/v1.21.4/mediamtx_v1.21.4_linux_amd64.tar.gz" | sudo tar -xz -C /usr/local/bin mediamtx || true
+      - name: Measure coverage
+        run: cargo llvm-cov --workspace --exclude camtensor-py --lcov --output-path lcov.info
+      - name: Summary
+        run: cargo llvm-cov report --summary-only | tail -20 >> "$GITHUB_STEP_SUMMARY"
+      - uses: codecov/codecov-action@v5
+        with:
+          files: lcov.info
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
+
   msrv:
     name: MSRV build
     runs-on: ubuntu-latest

@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use camtensor_core::{Affine2, Device, Error, Frame, FrameData, Result, TensorDesc, TensorSpec};
 
-use crate::output::{AllocFn, Slot, ZeroFn};
+use crate::output::{AllocFn, Fence, Slot, ZeroFn};
 use crate::tensor::{AlignedBuf, Tensor, TensorStorage};
 
 #[cfg(feature = "cuda")]
@@ -90,6 +90,21 @@ impl Backend {
                 let g = g.clone();
                 Box::new(move |n| g.alloc_tensor(n))
             }
+            #[cfg(feature = "cuda")]
+            _ if matches!(self, Backend::Cuda(_))
+                && std::env::var("CAMTENSOR_PINNED").as_deref() != Ok("0") =>
+            {
+                let Backend::Cuda(g) = self else { unreachable!() };
+                let g = g.clone();
+                // Pinned host memory when a GPU writes into CPU outputs; plain
+                // memory if pinning fails (e.g. locked-memory limits).
+                Box::new(move |n| {
+                    g.alloc_pinned(n).or_else(|e| {
+                        tracing::debug!("pinned allocation failed, using pageable memory: {e}");
+                        Ok(TensorStorage::Host(AlignedBuf::zeroed(n)))
+                    })
+                })
+            }
             _ => Box::new(|n| Ok(TensorStorage::Host(AlignedBuf::zeroed(n)))),
         }
     }
@@ -154,13 +169,14 @@ impl WorkerCtx {
         spec: &TensorSpec,
         slot: Slot,
         out_device: Device,
-    ) -> Result<()> {
+    ) -> Result<Option<Fence>> {
         match (&frame.data, out_device) {
             (FrameData::Host(bytes), Device::Cpu | Device::Auto) => {
                 // SAFETY: the batcher reserved `slot` exclusively for this
                 // writer; it lies inside a live host buffer of `slot.len` bytes.
                 let out = unsafe { std::slice::from_raw_parts_mut(slot.addr as *mut u8, slot.len) };
                 camtensor_preprocess::preprocess_into(&frame.desc, bytes, sampling, spec, out)
+                    .map(|_| None)
             }
             #[cfg(feature = "cuda")]
             (_, _) => match &mut self.gpu {
@@ -212,7 +228,10 @@ impl WorkerCtx {
                     .enumerate()
                     .map(|(i, s)| (*s, storage.addr() + (i * img) as u64))
                     .collect();
-                g.write_image(frame, &items, spec, out_device)?;
+                // Crops are returned synchronously: wait for the kernel.
+                if let Some(fence) = g.write_image(frame, &items, spec, out_device)? {
+                    fence();
+                }
             }
             #[cfg(not(feature = "cuda"))]
             _ => return Err(Error::unavailable("device frames require the `cuda` feature")),

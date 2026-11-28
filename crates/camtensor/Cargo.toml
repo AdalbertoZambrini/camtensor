@@ -11,6 +11,10 @@ authors.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
 [features]
 default = ["cuda", "ffmpeg", "jpeg"]
 ## NVIDIA GPU support (NVDEC decoding + CUDA preprocessing), loaded at runtime.

@@ -512,7 +512,7 @@ impl Worker {
             let ctx = &mut self.ctx;
             let lat = &mut self.latency_ema;
             let res = out.submit(&id, |slot| {
-                ctx.write_image(&src, &plan.sampling, &spec, slot, out.device)?;
+                let fence = ctx.write_image(&src, &plan.sampling, &spec, slot, out.device)?;
                 let ready = now_ns();
                 let ms = ready.saturating_sub(info.recv_time_ns) as f64 / 1e6;
                 *lat = if *lat == 0.0 { ms } else { *lat * 0.95 + ms * 0.05 };
@@ -531,6 +531,7 @@ impl Worker {
                         dropped_since_last: 0,
                     },
                     keep.then(|| src.clone()),
+                    fence,
                 ))
             });
             if let Err(e) = res

@@ -107,6 +107,9 @@ struct BenchArgs {
     /// Batch deadline in milliseconds.
     #[arg(long, default_value_t = 20)]
     max_wait_ms: u64,
+    /// Output tensor device (auto = the engine device, cpu = host memory).
+    #[arg(long, default_value = "auto")]
+    output_device: String,
     /// Gating mode (always, keyframes, auto).
     #[arg(long, default_value = "always")]
     gating: String,
@@ -334,6 +337,7 @@ fn bench(a: BenchArgs) -> Result<()> {
             tensor: TensorSpec { width: a.size, height: a.size, dtype, ..Default::default() },
             batch: BatchConfig { max_size: a.batch, max_wait_ms: a.max_wait_ms, pad_to_max: false },
             queue_depth: 8,
+            device: Some(a.output_device.parse()?),
             ..Default::default()
         },
     );

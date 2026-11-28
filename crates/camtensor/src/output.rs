@@ -26,6 +26,30 @@ pub(crate) type AllocFn = dyn Fn(usize) -> Result<TensorStorage> + Send + Sync;
 /// Zero-fills `len` bytes at `addr` on the output's device.
 pub(crate) type ZeroFn = dyn Fn(u64, usize) -> Result<()> + Send + Sync;
 
+/// Completion of asynchronous device work for one image: waiting on it
+/// guarantees the image is fully written; dropping it releases what the work
+/// still needed (e.g. the source frame).
+pub(crate) type Fence = Box<dyn FnOnce() + Send>;
+
+/// What a writer returns for a successfully written image.
+pub(crate) type Written = (FrameMeta, Option<camtensor_core::Frame>, Option<Fence>);
+
+/// A finished batch waiting for its consumer, with the GPU work it depends on.
+struct Ready {
+    batch: Batch,
+    fences: Vec<Fence>,
+}
+
+impl Ready {
+    /// Waits for all device work of the batch, then returns it.
+    fn complete(self) -> Batch {
+        for f in self.fences {
+            f();
+        }
+        self.batch
+    }
+}
+
 /// Where a writer must put its image.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Slot {
@@ -55,6 +79,7 @@ pub struct OutputStats {
 struct Filling {
     storage: Arc<TensorStorage>,
     items: Vec<Option<BatchItem>>,
+    fences: Vec<Fence>,
     reserved: usize,
     done: usize,
     sealed: bool,
@@ -66,7 +91,7 @@ struct State {
     pool: Vec<Arc<TensorStorage>>,
     filling: Option<Filling>,
     sealing: Vec<Filling>,
-    ready: VecDeque<Batch>,
+    ready: VecDeque<Ready>,
     pending_drops: HashMap<Arc<str>, u64>,
     closed: bool,
     next_id: u64,
@@ -164,7 +189,7 @@ impl Output {
     pub(crate) fn submit(
         &self,
         stream: &Arc<str>,
-        write: impl FnOnce(Slot) -> Result<(FrameMeta, Option<camtensor_core::Frame>)>,
+        write: impl FnOnce(Slot) -> Result<Written>,
     ) -> Result<bool> {
         let (id, idx, storage) = {
             let mut st = self.state.lock();
@@ -182,6 +207,7 @@ impl Output {
                         st.filling = Some(Filling {
                             storage,
                             items: vec![None; self.cfg.batch.max_size],
+                            fences: Vec::new(),
                             reserved: 0,
                             done: 0,
                             sealed: false,
@@ -231,11 +257,13 @@ impl Output {
         drop(storage);
 
         let mut st = self.state.lock();
+        let mut fence = None;
         let item = match result {
-            Ok((mut meta, frame)) => {
+            Ok((mut meta, frame, f)) => {
                 if let Some(n) = st.pending_drops.remove(stream) {
                     meta.dropped_since_last += n;
                 }
+                fence = f;
                 Some(BatchItem { meta, valid: true, frame })
             }
             Err(e) => {
@@ -247,6 +275,7 @@ impl Output {
         let finished = {
             let f = find_filling(&mut st, id).expect("slot owner");
             f.items[idx] = item;
+            f.fences.extend(fence);
             f.done += 1;
             f.sealed && f.done == f.reserved
         };
@@ -293,6 +322,9 @@ impl Output {
             }
         }
         if valid == 0 {
+            for fence in f.fences {
+                fence();
+            }
             return;
         }
         let desc = TensorDesc::contiguous(self.device, spec.dtype, spec.batch_shape(n));
@@ -304,7 +336,7 @@ impl Output {
         };
         st.stats.batches += 1;
         st.stats.images += valid;
-        st.ready.push_back(batch);
+        st.ready.push_back(Ready { batch, fences: f.fences });
         let limit = match self.cfg.backpressure {
             Backpressure::LatestOnly => 1,
             _ => self.cfg.queue_depth,
@@ -347,10 +379,12 @@ impl Output {
         let deadline = timeout.map(|t| Instant::now() + t);
         let mut st = self.state.lock();
         loop {
-            if let Some(b) = st.ready.pop_front() {
+            if let Some(r) = st.ready.pop_front() {
                 st.stats.queued = st.ready.len();
                 self.cv_space.notify_all();
-                return Ok(b);
+                drop(st);
+                // Wait for the GPU outside the lock.
+                return Ok(r.complete());
             }
             if st.closed {
                 return Err(Error::Closed);
@@ -369,12 +403,13 @@ impl Output {
     /// Non-blocking receive.
     pub(crate) fn try_recv(&self) -> Option<Batch> {
         let mut st = self.state.lock();
-        let b = st.ready.pop_front();
-        if b.is_some() {
+        let r = st.ready.pop_front();
+        if r.is_some() {
             st.stats.queued = st.ready.len();
             self.cv_space.notify_all();
         }
-        b
+        drop(st);
+        r.map(Ready::complete)
     }
 
     pub(crate) fn stats(&self) -> OutputStats {
@@ -408,7 +443,9 @@ fn take_filling(st: &mut State, id: u64) -> Option<Filling> {
 /// Drops the oldest queued batch, accounting its images as dropped.
 fn drop_oldest(st: &mut State) -> bool {
     match st.ready.pop_front() {
-        Some(b) => {
+        Some(r) => {
+            // The batch buffer may only be recycled once its kernels finished.
+            let b = r.complete();
             for it in b.items.iter().filter(|i| i.valid) {
                 st.stats.dropped_images += 1;
                 // Carry the drops this image was reporting over to the next one.
@@ -487,7 +524,7 @@ mod tests {
         out.submit(stream, |slot| {
             // SAFETY: slot points into a host batch buffer reserved for us.
             unsafe { std::ptr::write_bytes(slot.addr as *mut u8, value, slot.len) };
-            Ok((meta(stream, seq), None))
+            Ok((meta(stream, seq), None, None))
         })
         .unwrap()
     }

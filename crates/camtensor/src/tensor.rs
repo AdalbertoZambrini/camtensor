@@ -14,6 +14,9 @@ pub const HOST_ALIGN: usize = 64;
 pub struct AlignedBuf {
     ptr: NonNull<u8>,
     len: usize,
+    /// External owner of the memory (e.g. page-locked CUDA host memory);
+    /// `None` for memory allocated by [`AlignedBuf::zeroed`].
+    owner: Option<Box<dyn Send + Sync>>,
 }
 
 // SAFETY: AlignedBuf exclusively owns its allocation; it is plain bytes.
@@ -26,13 +29,23 @@ impl AlignedBuf {
     /// Allocates `len` zeroed bytes.
     pub fn zeroed(len: usize) -> Self {
         if len == 0 {
-            return Self { ptr: NonNull::dangling(), len: 0 };
+            return Self { ptr: NonNull::dangling(), len: 0, owner: None };
         }
         let layout = AllocLayout::from_size_align(len, HOST_ALIGN).expect("tensor too large");
         // SAFETY: layout has non-zero size.
         let raw = unsafe { alloc_zeroed(layout) };
         let ptr = NonNull::new(raw).unwrap_or_else(|| std::alloc::handle_alloc_error(layout));
-        Self { ptr, len }
+        Self { ptr, len, owner: None }
+    }
+
+    /// Wraps memory owned by `owner` (released when the buffer is dropped).
+    ///
+    /// # Safety
+    /// `ptr..ptr+len` must be valid, writable, zero-initialised or otherwise
+    /// initialised memory aligned to [`HOST_ALIGN`], that stays valid for as
+    /// long as `owner` lives and is not accessed through other paths.
+    pub(crate) unsafe fn from_owner(ptr: *mut u8, len: usize, owner: Box<dyn Send + Sync>) -> Self {
+        Self { ptr: NonNull::new(ptr).unwrap_or(NonNull::dangling()), len, owner: Some(owner) }
     }
 
     /// Length in bytes.
@@ -59,7 +72,7 @@ impl AlignedBuf {
 
 impl Drop for AlignedBuf {
     fn drop(&mut self) {
-        if self.len > 0 {
+        if self.owner.is_none() && self.len > 0 {
             let layout = AllocLayout::from_size_align(self.len, HOST_ALIGN).expect("layout");
             // SAFETY: allocated in `zeroed` with this exact layout.
             unsafe { dealloc(self.ptr.as_ptr(), layout) };

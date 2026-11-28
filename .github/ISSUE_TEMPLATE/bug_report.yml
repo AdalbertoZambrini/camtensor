@@ -1,0 +1,42 @@
+name: Bug report
+description: Something does not work as documented
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected and what happened instead.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: camtensor version and interface
+      placeholder: "0.1.0, Python wheel / Rust crate / service / C API"
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: OS, CPU, GPU and driver
+      placeholder: "Ubuntu 24.04, x86_64, RTX 4070, driver 570"
+    validations:
+      required: true
+  - type: input
+    id: source
+    attributes:
+      label: Source
+      description: Camera model or MediaMTX version, codec, resolution, fps. `camtensor probe <url>` output helps.
+  - type: textarea
+    id: config
+    attributes:
+      label: Configuration
+      description: Your camtensor YAML or code (remove passwords).
+      render: yaml
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Run with `RUST_LOG=camtensor=debug` and paste the relevant part.
+      render: text
