@@ -50,13 +50,15 @@ impl PyEngine {
     ///
     /// `config` may be `None`, a dict, a YAML/JSON string, or a path to a
     /// YAML/JSON file. `device` ("auto", "cpu", "cuda:0") overrides the
-    /// configured device.
+    /// configured device; `devices` (e.g. `["cuda:0", "cuda:1"]` or
+    /// `["auto"]` for every GPU) enables multi-GPU placement.
     #[new]
-    #[pyo3(signature = (config=None, device=None))]
+    #[pyo3(signature = (config=None, device=None, devices=None))]
     fn new(
         py: Python<'_>,
         config: Option<&Bound<'_, PyAny>>,
         device: Option<&str>,
+        devices: Option<Vec<String>>,
     ) -> PyResult<Self> {
         let mut cfg = match config {
             None => EngineConfig::default(),
@@ -77,14 +79,27 @@ impl PyEngine {
         if let Some(d) = device {
             cfg.device = d.parse().map_err(to_py)?;
         }
+        if let Some(list) = devices {
+            cfg.devices = list
+                .iter()
+                .map(|d| d.parse::<Device>())
+                .collect::<Result<_, _>>()
+                .map_err(to_py)?;
+        }
         let inner = py.detach(|| RsEngine::new(cfg)).map_err(to_py)?;
         Ok(Self { inner })
     }
 
-    /// Device used for decoding and default outputs ("cpu" or "cuda:N").
+    /// Primary device ("cpu" or "cuda:N").
     #[getter]
     fn device(&self) -> String {
         self.inner.device().to_string()
+    }
+
+    /// Every device of the engine (several with multi-GPU).
+    #[getter]
+    fn devices(&self) -> Vec<String> {
+        self.inner.devices().iter().map(ToString::to_string).collect()
     }
 
     /// Names of the outputs.
@@ -150,7 +165,7 @@ impl PyEngine {
     /// file's frame rate and `loop` restarts at the end.
     #[pyo3(signature = (
         id, url, outputs, *, gating=None, transport="tcp", decoder=None, username=None,
-        password=None, region=None, realtime=true, r#loop=true
+        password=None, region=None, realtime=true, r#loop=true, device=None
     ))]
     #[allow(clippy::too_many_arguments)]
     fn add_stream(
@@ -167,6 +182,7 @@ impl PyEngine {
         region: Option<(f32, f32, f32, f32)>,
         realtime: bool,
         r#loop: bool,
+        device: Option<&str>,
     ) -> PyResult<()> {
         let gating = match gating {
             None => GatingConfig::default(),
@@ -187,6 +203,7 @@ impl PyEngine {
             decoder: decoder.map(|d| parse_enum(d, "decoder")).transpose()?,
             region: region.map(|(x, y, w, h)| Region { x, y, w, h }),
             playback: PlaybackConfig { realtime, looped: r#loop },
+            device: device.map(|d| d.parse::<Device>()).transpose().map_err(to_py)?,
             ..Default::default()
         };
         py.detach(|| self.inner.add_stream(cfg)).map_err(to_py)
@@ -204,8 +221,15 @@ impl PyEngine {
 
     /// Wait for the next batch of `output`. Raises `TimeoutError` after
     /// `timeout` seconds (None waits forever, releasing the GIL).
-    #[pyo3(signature = (output, timeout=None))]
-    fn recv(&self, py: Python<'_>, output: &str, timeout: Option<f64>) -> PyResult<PyBatch> {
+    #[pyo3(signature = (output, timeout=None, device=None))]
+    fn recv(
+        &self,
+        py: Python<'_>,
+        output: &str,
+        timeout: Option<f64>,
+        device: Option<&str>,
+    ) -> PyResult<PyBatch> {
+        let device = device.map(|d| d.parse::<Device>()).transpose().map_err(to_py)?;
         let deadline =
             timeout.map(|s| std::time::Instant::now() + Duration::from_secs_f64(s.max(0.0)));
         loop {
@@ -214,7 +238,11 @@ impl PyEngine {
             if let Some(d) = deadline {
                 wait = wait.min(d.saturating_duration_since(std::time::Instant::now()));
             }
-            match py.detach(|| self.inner.recv(output, Some(wait))) {
+            let got = py.detach(|| match device {
+                Some(d) => self.inner.recv_on(output, d, Some(wait)),
+                None => self.inner.recv(output, Some(wait)),
+            });
+            match got {
                 Ok(b) => return Ok(PyBatch::from(b)),
                 Err(Error::Timeout) => {
                     py.check_signals()?;
@@ -233,8 +261,10 @@ impl PyEngine {
     }
 
     /// Iterate over the batches of `output` until the engine is closed.
-    fn batches(slf: Py<Self>, output: String) -> PyBatchIter {
-        PyBatchIter { engine: slf, output }
+    #[pyo3(signature = (output, device=None))]
+    fn batches(slf: Py<Self>, output: String, device: Option<&str>) -> PyResult<PyBatchIter> {
+        let device = device.map(|d| d.parse::<Device>()).transpose().map_err(to_py)?;
+        Ok(PyBatchIter { engine: slf, output, device })
     }
 
     /// Extract crops of a kept frame as a tensor `[len(rois), ...]`.
@@ -338,6 +368,7 @@ impl PyEngine {
 struct PyBatchIter {
     engine: Py<PyEngine>,
     output: String,
+    device: Option<Device>,
 }
 
 #[pymethods]
@@ -349,7 +380,12 @@ impl PyBatchIter {
     fn __next__(&self, py: Python<'_>) -> PyResult<Option<PyBatch>> {
         let engine = self.engine.get();
         loop {
-            match py.detach(|| engine.inner.recv(&self.output, Some(Duration::from_millis(200)))) {
+            let wait = Some(Duration::from_millis(200));
+            let got = py.detach(|| match self.device {
+                Some(d) => engine.inner.recv_on(&self.output, d, wait),
+                None => engine.inner.recv(&self.output, wait),
+            });
+            match got {
                 Ok(b) => return Ok(Some(PyBatch::from(b))),
                 Err(Error::Timeout) => py.check_signals()?,
                 Err(Error::Closed) => return Ok(None),
@@ -795,7 +831,12 @@ fn capabilities<'py>(py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
 }
 
 /// Python module definition.
-#[pymodule]
+///
+/// `gil_used = false`: the module is safe without the GIL (free-threaded
+/// CPython 3.14t+). The engine is `Send + Sync`, exposed objects are frozen
+/// (immutable) or guarded by PyO3, and every blocking call releases the
+/// thread state.
+#[pymodule(gil_used = false)]
 fn _camtensor(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyEngine>()?;
     m.add_class::<PyBatch>()?;

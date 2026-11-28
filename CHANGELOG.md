@@ -17,6 +17,9 @@ All notable changes to this project are documented here. The format follows
 - Python bindings with DLPack, `__cuda_array_interface__` and NumPy support, plus a C ABI, a standalone service (REST and shared memory), a client crate and a CLI (`probe`, `run`, `serve`, `bench`).
 - Video files as sources (`file:` URLs, FFmpeg 6+), with real-time or as-fast-as-possible playback and looping.
 - Webcams and capture cards (`device:` URLs via libavdevice; raw YUYV/UYVY/NV12/I420/grey and MJPEG), `camtensor devices`, `ct.list_devices()`.
+- Multi-GPU engines: least-loaded (pixel-rate) or pinned placement, per-device output shards, `recv_on` / `subscribe_on` / `device=` in Python, C (`ct_engine_recv_device`), the service data plane and the CLI (`--devices`).
+- Free-threaded CPython (3.14t, 3.15t) support: the extension keeps the GIL disabled; `cp314t` / `cp315t` wheels.
+- Fix: with `block` backpressure, removing a stream or shutting down could deadlock.
 - Python asyncio support: `async for batch in eng.abatches(...)`, `await eng.arecv(...)`.
 - `camtensor client` to read batches from the service's shared-memory data plane.
 - Performance: asynchronous CUDA fences (one wait per batch instead of one per image) and page-locked host memory for CPU outputs.

@@ -14,14 +14,17 @@ name = "_camtensor"
 crate-type = ["cdylib", "rlib"]
 
 [features]
-default = ["cuda", "ffmpeg", "jpeg"]
+default = ["abi3", "cuda", "ffmpeg", "jpeg"]
+## One wheel for every CPython >= 3.9 (GIL builds). Free-threaded builds
+## (3.14t, 3.15t) need version-specific wheels: build without this feature.
+abi3 = ["pyo3/abi3-py39"]
 cuda = ["camtensor/cuda"]
 ffmpeg = ["camtensor/ffmpeg"]
 jpeg = ["camtensor/jpeg"]
 
 [dependencies]
 camtensor.workspace = true
-pyo3 = { version = "0.30", features = ["abi3-py39", "extension-module"] }
+pyo3 = { version = "0.30", features = ["extension-module"] }
 serde.workspace = true
 serde_json.workspace = true
 serde_norway.workspace = true

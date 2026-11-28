@@ -49,6 +49,8 @@ camtensor on NVDEC keeps **48 full-HD cameras in real time on less than one CPU 
 - **Regions of interest:** each camera can be restricted to part of the frame (normalised coordinates, so a resolution change does not break it). Results still map back to full-frame pixels.
 - **JPEG snapshots:** `snapshot(frame)` encodes a kept frame, or a region of it, without decoding again. The colour conversion runs on the GPU.
 - **Compressed-domain motion gating:** packet sizes are read without decoding. Idle cameras decode keyframes only, and the buffered GOP is replayed the moment activity starts. This cut CPU by 54% on a mostly static scene.
+- **Multi-GPU:** each camera is placed on one GPU (the least loaded by pixel rate, or pinned) and stays there, so decode, preprocessing and batches never cross PCIe. Outputs are sharded per GPU, with one consumer per GPU via `recv(..., device="cuda:1")`.
+- **Free-threaded Python (3.14t / 3.15t):** the extension keeps the GIL disabled, so consumer threads (one per GPU, crops, snapshots) run truly in parallel.
 - **Everywhere:** Rust crate, Python wheel (`abi3`, 1.6 MB, DLPack / `__cuda_array_interface__` / NumPy / `async for`), C ABI, a standalone service (REST control plane and shared-memory data plane), and a CLI (`probe`, `run`, `serve`, `bench`). Prometheus metrics are built in.
 - **Linux and Windows,** on x86_64 and ARM64. The GPU path needs only the NVIDIA driver at runtime; the CPU path runs on any processor.
 
@@ -120,6 +122,26 @@ for batch in eng.batches("stage1"):
 ```
 
 See [examples/python/keypoint_crops.py](examples/python/keypoint_crops.py).
+
+## Multi-GPU
+
+```python
+eng = ct.Engine(devices=["auto"])          # every GPU; or ["cuda:0", "cuda:1"]
+eng.add_output("detector", 640, 640, dtype="f16", batch=8, max_wait_ms=15)
+for url in camera_urls:
+    eng.add_stream(url.split("/")[-1], url, ["detector"])   # placed on the least loaded GPU
+eng.add_stream("lobby", lobby_url, ["detector"], device="cuda:1")  # or pinned
+
+def worker(device):                        # one thread and one model per GPU
+    model = load_model(device)
+    for batch in eng.batches("detector", device=device):
+        model(torch.from_dlpack(batch))    # already on that GPU
+
+for d in eng.devices:
+    threading.Thread(target=worker, args=(d,)).start()
+```
+
+Placement counts pixels per second (resolution × fps), so one 4K camera weighs as much as several 720p ones. A stream never moves once placed. With free-threaded Python (3.14t, 3.15t) the per-GPU threads run in parallel.
 
 ## Rust
 

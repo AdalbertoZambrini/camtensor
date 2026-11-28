@@ -87,6 +87,9 @@ int ct_engine_force_active(const ct_engine *engine, const char *stream_id, doubl
 
 /* Wait for a batch; timeout_ms < 0 waits forever. Returns CT_OK, CT_TIMEOUT, CT_CLOSED or an error. */
 int ct_engine_recv(const ct_engine *engine, const char *output, int timeout_ms, ct_batch **out);
+/* Multi-GPU: only batches produced on `device` ("cuda:1", "cpu", ...). */
+int ct_engine_recv_device(const ct_engine *engine, const char *output, const char *device,
+                          int timeout_ms, ct_batch **out);
 size_t ct_batch_len(const ct_batch *batch);
 int ct_batch_tensor(const ct_batch *batch, ct_tensor *out);
 int ct_batch_item(const ct_batch *batch, size_t index, ct_item *out);

@@ -98,12 +98,46 @@ struct State {
     stats: OutputStats,
 }
 
+/// Wakes up receivers waiting on any shard of an output group.
+#[derive(Default)]
+pub(crate) struct Signal {
+    counter: Mutex<u64>,
+    cv: Condvar,
+}
+
+impl Signal {
+    fn notify(&self) {
+        *self.counter.lock() += 1;
+        self.cv.notify_all();
+    }
+
+    fn generation(&self) -> u64 {
+        *self.counter.lock()
+    }
+
+    /// Waits until the generation differs from `seen` or `deadline` passes.
+    fn wait_change(&self, seen: u64, deadline: Option<Instant>) {
+        let mut g = self.counter.lock();
+        while *g == seen {
+            match deadline {
+                Some(d) => {
+                    if self.cv.wait_until(&mut g, d).timed_out() {
+                        return;
+                    }
+                }
+                None => self.cv.wait(&mut g),
+            }
+        }
+    }
+}
+
 pub(crate) struct Output {
     pub(crate) name: Arc<str>,
     pub(crate) cfg: OutputConfig,
     pub(crate) device: Device,
     alloc: Box<AllocFn>,
     zero: Box<ZeroFn>,
+    signal: Option<Arc<Signal>>,
     state: Mutex<State>,
     cv_ready: Condvar,
     cv_space: Condvar,
@@ -124,6 +158,7 @@ impl Output {
         device: Device,
         alloc: Box<AllocFn>,
         zero: Box<ZeroFn>,
+        signal: Option<Arc<Signal>>,
     ) -> Result<Arc<Self>> {
         cfg.validate()?;
         let out = Arc::new(Self {
@@ -132,6 +167,7 @@ impl Output {
             device,
             alloc,
             zero,
+            signal,
             state: Mutex::new(State {
                 pool: Vec::new(),
                 filling: None,
@@ -186,9 +222,12 @@ impl Output {
     /// the image metadata (or an error, which leaves the slot invalid).
     ///
     /// Returns `Ok(false)` when the image was dropped by backpressure.
+    /// With [`Backpressure::Block`] the writer waits for space until `cancel`
+    /// is set (stream removal / shutdown), then drops the image.
     pub(crate) fn submit(
         &self,
         stream: &Arc<str>,
+        cancel: &std::sync::atomic::AtomicBool,
         write: impl FnOnce(Slot) -> Result<Written>,
     ) -> Result<bool> {
         let (id, idx, storage) = {
@@ -218,6 +257,10 @@ impl Output {
                     }
                     None => match self.cfg.backpressure {
                         Backpressure::Block => {
+                            if cancel.load(Ordering::Relaxed) {
+                                st.stats.dropped_images += 1;
+                                return Ok(false);
+                            }
                             self.cv_space.wait_for(&mut st, Duration::from_millis(100));
                         }
                         Backpressure::DropOldest | Backpressure::LatestOnly => {
@@ -349,6 +392,9 @@ impl Output {
         }
         st.stats.queued = st.ready.len();
         self.cv_ready.notify_all();
+        if let Some(s) = &self.signal {
+            s.notify();
+        }
     }
 
     /// Seals the batch being filled if its deadline expired. Returns the
@@ -422,6 +468,86 @@ impl Output {
         self.cv_ready.notify_all();
         self.cv_space.notify_all();
         self.cv_flush.notify_all();
+        drop(st);
+        if let Some(s) = &self.signal {
+            s.notify();
+        }
+    }
+
+    pub(crate) fn is_closed(&self) -> bool {
+        self.state.lock().closed
+    }
+}
+
+/// An output with one shard per engine device (multi-GPU). Batches never
+/// mix devices: a shard only receives images from streams placed on its
+/// device.
+pub(crate) struct OutputGroup {
+    pub(crate) cfg: OutputConfig,
+    pub(crate) shards: Vec<Arc<Output>>,
+    signal: Arc<Signal>,
+    next: std::sync::atomic::AtomicUsize,
+}
+
+impl OutputGroup {
+    pub(crate) fn new(cfg: OutputConfig, shards: Vec<Arc<Output>>, signal: Arc<Signal>) -> Self {
+        Self { cfg, shards, signal, next: std::sync::atomic::AtomicUsize::new(0) }
+    }
+
+    /// Shard whose tensors live on `device`.
+    pub(crate) fn shard_for(&self, device: Device) -> Result<&Arc<Output>> {
+        self.shards
+            .iter()
+            .find(|o| o.device == device)
+            .ok_or_else(|| Error::NotFound(format!("no shard of this output on {device}")))
+    }
+
+    /// Next batch from any shard (round-robin among ready shards).
+    pub(crate) fn recv(&self, timeout: Option<Duration>) -> Result<Batch> {
+        if self.shards.len() == 1 {
+            return self.shards[0].recv(timeout);
+        }
+        let deadline = timeout.map(|t| Instant::now() + t);
+        loop {
+            let seen = self.signal.generation();
+            if let Some(b) = self.try_recv() {
+                return Ok(b);
+            }
+            if self.shards.iter().all(|o| o.is_closed()) {
+                return Err(Error::Closed);
+            }
+            if deadline.is_some_and(|d| Instant::now() >= d) {
+                return Err(Error::Timeout);
+            }
+            self.signal.wait_change(seen, deadline);
+        }
+    }
+
+    pub(crate) fn try_recv(&self) -> Option<Batch> {
+        let n = self.shards.len();
+        let start = self.next.fetch_add(1, Ordering::Relaxed);
+        (0..n).find_map(|i| self.shards[(start + i) % n].try_recv())
+    }
+
+    /// Statistics summed over shards.
+    pub(crate) fn stats(&self) -> OutputStats {
+        let mut t = OutputStats::default();
+        for o in &self.shards {
+            let s = o.stats();
+            t.batches += s.batches;
+            t.images += s.images;
+            t.dropped_images += s.dropped_images;
+            t.failed_images += s.failed_images;
+            t.buffers += s.buffers;
+            t.queued += s.queued;
+        }
+        t
+    }
+
+    pub(crate) fn close(&self) {
+        for o in &self.shards {
+            o.close();
+        }
     }
 }
 
@@ -512,6 +638,7 @@ mod tests {
                 unsafe { std::ptr::write_bytes(addr as *mut u8, 0, len) };
                 Ok(())
             }),
+            None,
         )
         .unwrap()
     }
@@ -521,7 +648,7 @@ mod tests {
     }
 
     fn put(out: &Output, stream: &Arc<str>, seq: u64, value: u8) -> bool {
-        out.submit(stream, |slot| {
+        out.submit(stream, &std::sync::atomic::AtomicBool::new(false), |slot| {
             // SAFETY: slot points into a host batch buffer reserved for us.
             unsafe { std::ptr::write_bytes(slot.addr as *mut u8, value, slot.len) };
             Ok((meta(stream, seq), None, None))

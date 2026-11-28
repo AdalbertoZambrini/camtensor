@@ -69,6 +69,9 @@ enum Cmd {
         /// Device override (auto, cpu, cuda:N).
         #[arg(long)]
         device: Option<String>,
+        /// Several devices, comma separated (multi-GPU), e.g. `cuda:0,cuda:1` or `auto`.
+        #[arg(long, value_delimiter = ',')]
+        devices: Vec<String>,
     },
     /// Benchmark: N streams into one batched output, report throughput,
     /// latency and resource usage.
@@ -113,6 +116,9 @@ struct BenchArgs {
     /// Batch deadline in milliseconds.
     #[arg(long, default_value_t = 20)]
     max_wait_ms: u64,
+    /// Several devices, comma separated (multi-GPU), e.g. `cuda:0,cuda:1`.
+    #[arg(long, value_delimiter = ',')]
+    devices: Vec<String>,
     /// Output tensor device (auto = the engine device, cpu = host memory).
     #[arg(long, default_value = "auto")]
     output_device: String,
@@ -169,7 +175,9 @@ fn main() -> Result<()> {
             Ok(())
         }
         Cmd::Run { config, interval, duration } => run(&config, interval, duration),
-        Cmd::Serve { config, http, data, device } => serve(config, &http, &data, device),
+        Cmd::Serve { config, http, data, device, devices } => {
+            serve(config, &http, &data, device, devices)
+        }
         Cmd::Bench(args) => bench(args),
         Cmd::Client { output, data, count } => client(&output, &data, count),
     }
@@ -263,8 +271,9 @@ fn run(config: &str, interval: u64, duration: u64) -> Result<()> {
         let st = engine.stats();
         for s in &st.streams {
             println!(
-                "{:<16} {:<5} {:>5}x{:<5} dec={:<6} gate={:<7} in={:>5.1}fps dec={:>5.1}fps lat={:>6.2}ms err={}",
+                "{:<16} {:<7} {:<8} {:>5}x{:<5} dec={:<6} gate={:<7} in={:>5.1}fps dec={:>5.1}fps lat={:>6.2}ms err={}",
                 s.id,
+                s.device,
                 s.codec.as_deref().unwrap_or("-"),
                 s.width,
                 s.height,
@@ -293,13 +302,22 @@ fn run(config: &str, interval: u64, duration: u64) -> Result<()> {
     Ok(())
 }
 
-fn serve(config: Option<String>, http: &str, data: &str, device: Option<String>) -> Result<()> {
+fn serve(
+    config: Option<String>,
+    http: &str,
+    data: &str,
+    device: Option<String>,
+    devices: Vec<String>,
+) -> Result<()> {
     let mut cfg = match config {
         Some(p) => EngineConfig::from_path(p)?,
         None => EngineConfig::default(),
     };
     if let Some(d) = device {
         cfg.device = d.parse()?;
+    }
+    if !devices.is_empty() {
+        cfg.devices = devices.iter().map(|d| d.parse()).collect::<camtensor::Result<_>>()?;
     }
     let engine = Engine::new(cfg)?;
     let opts = camtensor_service::ServeOptions {
@@ -358,6 +376,7 @@ fn bench(a: BenchArgs) -> Result<()> {
     };
     let device: Device = a.device.parse()?;
     let mut cfg = EngineConfig { device, decoder, ..Default::default() };
+    cfg.devices = a.devices.iter().map(|d| d.parse()).collect::<camtensor::Result<_>>()?;
     cfg.outputs.insert(
         "bench".into(),
         OutputConfig {

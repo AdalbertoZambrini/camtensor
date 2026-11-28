@@ -42,6 +42,40 @@ jobs:
           name: wheel-${{ matrix.os }}-${{ matrix.target }}
           path: dist/*.whl
 
+  wheels-freethreaded:
+    name: free-threaded wheel ${{ matrix.python }} (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ["3.14t", "3.15t"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: cp README.md crates/camtensor-py/README.md
+        shell: bash
+      - uses: PyO3/maturin-action@v1
+        if: runner.os == 'Linux'
+        with:
+          working-directory: crates/camtensor-py
+          manylinux: "2_28"
+          args: --release --out ../../dist --no-default-features --features cuda,ffmpeg,jpeg -i python${{ matrix.python }}
+      - uses: astral-sh/setup-uv@v6
+        if: runner.os == 'Windows'
+      - name: Build (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          uv python install ${{ matrix.python }}
+          uv venv -p ${{ matrix.python }} .venv-ft
+          uv pip install -p .venv-ft/Scripts/python maturin
+          .venv-ft/Scripts/python -m maturin build --release -m crates/camtensor-py/Cargo.toml -o dist \
+            --no-default-features --features cuda,ffmpeg,jpeg -i .venv-ft/Scripts/python
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheel-ft-${{ matrix.os }}-${{ matrix.python }}
+          path: dist/*.whl
+
   sdist:
     runs-on: ubuntu-latest
     steps:
@@ -58,7 +92,7 @@ jobs:
           path: dist/*.tar.gz
 
   pypi:
-    needs: [wheels, sdist]
+    needs: [wheels, wheels-freethreaded, sdist]
     if: startsWith(github.ref, 'refs/tags/') || inputs.publish
     runs-on: ubuntu-latest
     environment: pypi

@@ -221,3 +221,49 @@ def test_webcam_if_present():
         b = eng.recv("o", timeout=20)
         assert b[0].src_width > 0
         assert eng.snapshot(b[0].frame)[:2] == b"\xff\xd8"
+
+
+@pytest.mark.skipif(not FFMPEG, reason="ffmpeg not available")
+def test_multi_device_one_consumer_per_device(tmp_path):
+    import threading
+
+    if not ct.capabilities()["cuda"]:
+        pytest.skip("CUDA not available")
+    clip = tmp_path / "md.mkv"
+    subprocess.run(
+        [FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
+         "testsrc2=size=320x240:rate=25", "-frames:v", "25", "-c:v", "mjpeg", "-q:v", "5",
+         "-pix_fmt", "yuvj420p", str(clip)],
+        check=True,
+    )
+    with ct.Engine(devices=["cuda:0", "cpu"]) as eng:
+        assert eng.devices == ["cuda:0", "cpu"]
+        eng.add_output("o", 64, 64, dtype="f16", backpressure="block")
+        for i in range(4):
+            eng.add_stream(f"s{i}", f"file:{clip}", ["o"])
+        eng.add_stream("pinned", f"file:{clip}", ["o"], device="cpu")
+        placement = {s["id"]: s["device"] for s in eng.stats()["streams"]}
+        assert placement["pinned"] == "cpu"
+        assert sorted(placement.values()).count("cuda:0") >= 2
+
+        results, errors = {}, []
+
+        def consume(device):
+            try:
+                seen = set()
+                for _ in range(6):
+                    b = eng.recv("o", timeout=10, device=device)
+                    assert b.tensor.device == device
+                    seen.update(i.stream_id for i in b.items if i.valid)
+                results[device] = seen
+            except Exception as e:  # pragma: no cover
+                errors.append(repr(e))
+
+        threads = [threading.Thread(target=consume, args=(d,)) for d in ("cuda:0", "cpu")]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        assert not errors, errors
+        for device, seen in results.items():
+            assert all(placement[s] == device for s in seen), (device, seen, placement)

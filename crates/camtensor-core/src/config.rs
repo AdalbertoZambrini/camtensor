@@ -27,6 +27,11 @@ use crate::{Error, Result};
 pub struct EngineConfig {
     /// Default device for decoding and output tensors.
     pub device: Device,
+    /// Several devices (multi-GPU). Each stream is placed on one of them
+    /// (least loaded by pixel rate, unless the stream pins `device`) and
+    /// stays there; outputs get one shard per device. `auto` in the list
+    /// expands to every CUDA device. Empty = just `device`.
+    pub devices: Vec<Device>,
     /// Default decoder preference for all streams.
     pub decoder: DecoderPref,
     /// Named outputs. Streams reference outputs by name; all streams that
@@ -42,6 +47,7 @@ impl Default for EngineConfig {
     fn default() -> Self {
         Self {
             device: Device::Auto,
+            devices: Vec::new(),
             decoder: DecoderPref::Auto,
             outputs: BTreeMap::new(),
             streams: Vec::new(),
@@ -394,6 +400,9 @@ pub struct StreamConfig {
     pub playback: PlaybackConfig,
     /// Capture options for `device:` sources.
     pub capture: CaptureConfig,
+    /// Pin this stream to one of the engine's devices (multi-GPU); default:
+    /// automatic placement.
+    pub device: Option<Device>,
 }
 
 impl Default for StreamConfig {
@@ -411,6 +420,7 @@ impl Default for StreamConfig {
             region: None,
             playback: PlaybackConfig::default(),
             capture: CaptureConfig::default(),
+            device: None,
         }
     }
 }

@@ -361,3 +361,39 @@ fn webcam_if_present() {
     assert!(matches!(st.codec.as_deref(), Some("rawvideo") | Some("mjpeg")), "{st:?}");
     e.shutdown();
 }
+
+/// Regression: with `block` backpressure and no consumer, writers wait for
+/// space; removing the stream and shutting down must not deadlock.
+#[test]
+fn block_backpressure_does_not_deadlock_on_stop() {
+    let _g = SERIAL.lock().unwrap_or_else(|p| p.into_inner());
+    let Some(ff) = ffmpeg() else {
+        eprintln!("skipped: ffmpeg not found");
+        return;
+    };
+    let path = clip(
+        &ff,
+        "block.mkv",
+        "160x120",
+        20,
+        &["-c:v", "mjpeg", "-q:v", "5", "-pix_fmt", "yuvj420p"],
+    )
+    .expect("mjpeg encoder");
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut out = out_cfg(32, 32);
+        out.queue_depth = 1;
+        let e =
+            engine(file_url(&path), PlaybackConfig { realtime: false, looped: true }, None, out);
+        // Nobody consumes: the output fills up and the writer blocks.
+        std::thread::sleep(Duration::from_millis(800));
+        e.remove_stream("f").unwrap();
+        let mut s = StreamConfig::new("g", file_url(&path), &["o"]);
+        s.playback = PlaybackConfig { realtime: false, looped: true };
+        e.add_stream(s).unwrap();
+        std::thread::sleep(Duration::from_millis(500));
+        e.shutdown();
+        tx.send(()).unwrap();
+    });
+    rx.recv_timeout(Duration::from_secs(20)).expect("remove_stream/shutdown deadlocked");
+}

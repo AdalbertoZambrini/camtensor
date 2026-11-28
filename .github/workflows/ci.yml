@@ -169,6 +169,32 @@ jobs:
           python -m pip install --no-index --find-links dist camtensor
           python -m pytest crates/camtensor-py/tests -q
 
+  python-freethreaded:
+    name: python free-threaded ${{ matrix.python }} (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ["3.14t"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: astral-sh/setup-uv@v6
+      - name: Build and test a free-threaded wheel
+        shell: bash
+        run: |
+          uv python install ${{ matrix.python }}
+          uv venv -p ${{ matrix.python }} .venv-ft
+          if [ "$RUNNER_OS" = "Windows" ]; then PY=.venv-ft/Scripts/python; else PY=.venv-ft/bin/python; fi
+          uv pip install -p $PY maturin numpy pytest
+          $PY -m maturin build --release -m crates/camtensor-py/Cargo.toml -o dist-ft \
+            --no-default-features --features cuda,ffmpeg,jpeg -i $PY
+          uv pip install -p $PY --no-index --find-links dist-ft camtensor
+          $PY -c "import sys, camtensor; assert not sys._is_gil_enabled(), 'GIL re-enabled'"
+          $PY -m pytest crates/camtensor-py/tests -q
+
   # GPU tests need a machine with an NVIDIA GPU. Register a self-hosted runner
   # with the labels below and trigger this workflow manually.
   gpu:

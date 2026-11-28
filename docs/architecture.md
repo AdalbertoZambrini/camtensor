@@ -27,6 +27,17 @@ RTSP ──► ingest (tokio + retina) ──► gate ──► decoder ──�
 3. **Not decoding is cheaper than decoding.** For surveillance cameras, most frames are static. The gate reads only packet sizes and NAL headers, which costs almost nothing, so static streams decode one frame per GOP.
 4. **Batching across cameras** gives the inference engine large, regular batches.
 
+## Multiple GPUs
+
+An engine can own several devices (`devices: [cuda:0, cuda:1]`, or `[auto]`
+for every GPU). Each stream is placed on one device when it is added:
+the pinned one, or the device with the lowest pixel rate (width × height ×
+fps, updated once the real stream parameters are known). Every output has
+one shard per device, so a batch only holds images decoded and preprocessed
+on its own GPU. Consumers either take batches from any device (`recv`) or
+run one worker per GPU (`recv_on` / `device=`). Streams never move between
+devices, and decoder state and frames never cross PCIe.
+
 ## Threads
 
 * 2 tokio I/O threads for every RTSP session.

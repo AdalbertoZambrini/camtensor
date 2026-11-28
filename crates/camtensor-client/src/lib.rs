@@ -40,6 +40,9 @@ pub mod protocol {
             /// Number of shared-memory slots (batches in flight).
             #[serde(default = "default_slots")]
             slots: usize,
+            /// Only batches produced on this device (multi-GPU), e.g. `cuda:1`.
+            #[serde(default, skip_serializing_if = "Option::is_none")]
+            device: Option<String>,
         },
         /// The client is done with a slot.
         Release {
@@ -130,11 +133,26 @@ impl Client {
 
     /// Like [`Client::connect`] with an explicit number of slots.
     pub fn connect_with_slots(addr: &str, output: &str, slots: usize) -> Result<Self> {
+        Self::connect_with_options(addr, output, slots, None)
+    }
+
+    /// Subscribes to the batches of `output` produced on `device` only
+    /// (multi-GPU services).
+    pub fn connect_device(addr: &str, output: &str, device: &str) -> Result<Self> {
+        Self::connect_with_options(addr, output, 4, Some(device.to_string()))
+    }
+
+    fn connect_with_options(
+        addr: &str,
+        output: &str,
+        slots: usize,
+        device: Option<String>,
+    ) -> Result<Self> {
         let stream = TcpStream::connect(addr)?;
         stream.set_nodelay(true)?;
         let mut writer = stream.try_clone()?;
         let mut reader = BufReader::new(stream);
-        send(&mut writer, &ClientMsg::Subscribe { output: output.into(), slots })?;
+        send(&mut writer, &ClientMsg::Subscribe { output: output.into(), slots, device })?;
         let mut line = String::new();
         match read_msg(&mut reader, &mut line)? {
             ServerMsg::Subscribed { output, shm_path, slot_bytes, tensor, max_batch, .. } => {
@@ -230,7 +248,7 @@ mod tests {
 
     #[test]
     fn protocol_roundtrip() {
-        let m = ClientMsg::Subscribe { output: "det".into(), slots: 3 };
+        let m = ClientMsg::Subscribe { output: "det".into(), slots: 3, device: None };
         let s = serde_json::to_string(&m).unwrap();
         assert_eq!(s, r#"{"op":"subscribe","output":"det","slots":3}"#);
         let back: ClientMsg = serde_json::from_str(r#"{"op":"subscribe","output":"x"}"#).unwrap();

@@ -72,16 +72,76 @@ struct Info {
 }
 
 /// State shared between the engine, the source and the decode thread.
+/// Load bookkeeping for multi-device placement: pixel rate (pixels per
+/// second) and number of streams per engine device.
+#[derive(Default)]
+pub(crate) struct Loads {
+    pub(crate) pixel_rate: Vec<AtomicU64>,
+    pub(crate) streams: Vec<AtomicU64>,
+}
+
+impl Loads {
+    pub(crate) fn new(n: usize) -> Self {
+        Self {
+            pixel_rate: (0..n).map(|_| AtomicU64::new(0)).collect(),
+            streams: (0..n).map(|_| AtomicU64::new(0)).collect(),
+        }
+    }
+
+    /// Least-loaded device: lowest pixel rate, then fewest streams.
+    pub(crate) fn least_loaded(&self) -> usize {
+        (0..self.pixel_rate.len())
+            .min_by_key(|&i| {
+                (
+                    self.pixel_rate[i].load(Ordering::Relaxed),
+                    self.streams[i].load(Ordering::Relaxed),
+                )
+            })
+            .unwrap_or(0)
+    }
+}
+
+/// Atomically replaces `a` with `f(a)` (compare-exchange loop).
+fn update_atomic(a: &AtomicU64, f: impl Fn(u64) -> u64) {
+    let mut cur = a.load(Ordering::Relaxed);
+    loop {
+        match a.compare_exchange_weak(cur, f(cur), Ordering::Relaxed, Ordering::Relaxed) {
+            Ok(_) => return,
+            Err(v) => cur = v,
+        }
+    }
+}
+
+/// Pixel rate assumed until a stream's real parameters are known (1080p25).
+pub(crate) const DEFAULT_PIXEL_RATE: u64 = 1920 * 1080 * 25;
+
+/// Where a stream runs.
+pub(crate) struct Placement {
+    pub(crate) index: usize,
+    pub(crate) loads: Arc<Loads>,
+}
+
 pub(crate) struct StreamShared {
     pub(crate) cfg: StreamConfig,
     pub(crate) id: Arc<str>,
+    pub(crate) placement: Placement,
+    /// Pixel rate currently accounted in `placement.loads`.
+    weight: AtomicU64,
     counters: Counters,
     info: Mutex<Info>,
     force_until: AtomicU64,
     stop: AtomicBool,
+    device: camtensor_core::Device,
 }
 
 impl StreamShared {
+    /// Replaces this stream's contribution to its device's load.
+    fn set_weight(&self, w: u64) {
+        let old = self.weight.swap(w, Ordering::Relaxed);
+        let rate = &self.placement.loads.pixel_rate[self.placement.index];
+        update_atomic(rate, |v| v.saturating_sub(old).saturating_add(w));
+    }
+
     pub(crate) fn stats(&self, source: Option<&Source>) -> StreamStats {
         let c = &self.counters;
         let info = self.info.lock();
@@ -94,6 +154,7 @@ impl StreamShared {
         };
         StreamStats {
             id: self.cfg.id.clone(),
+            device: self.device.to_string(),
             url: redact_url(&self.cfg.url),
             connected: c.connected.load(Ordering::Relaxed),
             codec: info.params.as_ref().map(|p| p.codec.to_string()),
@@ -141,6 +202,11 @@ impl StreamHandle {
         }
         if let Some(t) = self.thread.take() {
             let _ = t.join();
+            // Release this stream's share of the device load (once).
+            self.shared.set_weight(0);
+            let p = &self.shared.placement;
+            let n = &p.loads.streams[p.index];
+            update_atomic(n, |v| v.saturating_sub(1));
         }
     }
 }
@@ -173,18 +239,24 @@ pub(crate) fn spawn(
     default_decoder: DecoderPref,
     outputs: Vec<Arc<Output>>,
     backend: Backend,
+    placement: Placement,
     rt: &tokio::runtime::Handle,
 ) -> Result<StreamHandle> {
     cfg.validate()?;
     let id: Arc<str> = cfg.id.as_str().into();
+    placement.loads.streams[placement.index].fetch_add(1, Ordering::Relaxed);
     let shared = Arc::new(StreamShared {
         cfg: cfg.clone(),
         id: id.clone(),
+        placement,
+        weight: AtomicU64::new(0),
+        device: backend.device(),
         counters: Counters::default(),
         info: Mutex::new(Info { gate: "warmup", ..Default::default() }),
         force_until: AtomicU64::new(0),
         stop: AtomicBool::new(false),
     });
+    shared.set_weight(DEFAULT_PIXEL_RATE);
     let (tx, rx) = tokio::sync::mpsc::channel(PACKET_QUEUE);
     let source = match cfg.source_kind()? {
         camtensor_core::SourceKind::Rtsp => {
@@ -335,6 +407,12 @@ impl Worker {
         if reopen {
             self.decoder = None;
             self.gate = None;
+        }
+        // Account the real pixel rate for placement of future streams.
+        let (w, h) = (p.width as u64, p.height as u64);
+        if w > 0 && h > 0 {
+            let fps = p.fps.filter(|f| *f > 0.0 && *f < 1000.0).unwrap_or(25.0);
+            self.shared.set_weight(((w * h) as f64 * fps) as u64);
         }
         self.shared.info.lock().params = Some(p.clone());
         self.params = Some(p);
@@ -550,7 +628,7 @@ impl Worker {
             let keep = out.cfg.keep_frame;
             let ctx = &mut self.ctx;
             let lat = &mut self.latency_ema;
-            let res = out.submit(&id, |slot| {
+            let res = out.submit(&id, &self.shared.stop, |slot| {
                 let fence = ctx.write_image(&src, &plan.sampling, &spec, slot, out.device)?;
                 let ready = now_ns();
                 let ms = ready.saturating_sub(info.recv_time_ns) as f64 / 1e6;

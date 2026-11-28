@@ -129,6 +129,7 @@ async fn info(State(e): State<Engine>) -> Json<serde_json::Value> {
         "name": "camtensor",
         "version": camtensor::VERSION,
         "device": e.device().to_string(),
+        "devices": e.devices().iter().map(ToString::to_string).collect::<Vec<_>>(),
         "capabilities": camtensor::capabilities(),
     }))
 }
@@ -248,8 +249,8 @@ async fn subscriber(engine: Engine, sock: TcpStream, shm_dir: PathBuf) -> std::i
     let (rd, mut wr) = sock.into_split();
     let mut lines = BufReader::new(rd).lines();
     let first = lines.next_line().await?.unwrap_or_default();
-    let (output, slots) = match serde_json::from_str::<ClientMsg>(&first) {
-        Ok(ClientMsg::Subscribe { output, slots }) => (output, slots.clamp(1, 64)),
+    let (output, slots, device) = match serde_json::from_str::<ClientMsg>(&first) {
+        Ok(ClientMsg::Subscribe { output, slots, device }) => (output, slots.clamp(1, 64), device),
         _ => {
             let m = ServerMsg::Error { message: "expected subscribe".into() };
             return write_msg(&mut wr, &m).await;
@@ -258,6 +259,13 @@ async fn subscriber(engine: Engine, sock: TcpStream, shm_dir: PathBuf) -> std::i
     let cfg = match engine.output_config(&output) {
         Ok(c) => c,
         Err(e) => return write_msg(&mut wr, &ServerMsg::Error { message: e.to_string() }).await,
+    };
+    let device: Option<camtensor::Device> = match device.map(|d| d.parse()).transpose() {
+        Ok(d) => d,
+        Err(e) => {
+            let m = ServerMsg::Error { message: format!("{e}") };
+            return write_msg(&mut wr, &m).await;
+        }
     };
     let slot_bytes = cfg.tensor.image_bytes() * cfg.batch.max_size;
     let path = shm_dir.join(format!(
@@ -321,7 +329,12 @@ async fn subscriber(engine: Engine, sock: TcpStream, shm_dir: PathBuf) -> std::i
             // Wait for a batch on a blocking thread (the engine API is synchronous).
             let (engine2, out2, map2) = (engine.clone(), output.clone(), map.clone());
             let msg = tokio::task::spawn_blocking(move || -> Result<Option<ServerMsg>, Error> {
-                let batch = match engine2.recv(&out2, Some(Duration::from_millis(500))) {
+                let wait = Some(Duration::from_millis(500));
+                let got = match device {
+                    Some(d) => engine2.recv_on(&out2, d, wait),
+                    None => engine2.recv(&out2, wait),
+                };
+                let batch = match got {
                     Ok(b) => b,
                     Err(Error::Timeout) => return Ok(None),
                     Err(e) => return Err(e),
