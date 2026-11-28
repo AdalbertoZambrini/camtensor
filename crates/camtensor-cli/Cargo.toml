@@ -23,6 +23,7 @@ jpeg = ["camtensor/jpeg"]
 [dependencies]
 camtensor.workspace = true
 camtensor-service.workspace = true
+camtensor-client.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 serde.workspace = true

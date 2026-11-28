@@ -1,0 +1,7 @@
+target
+.claude
+testdata/media
+testdata/out
+**/__pycache__
+*.whl
+.git

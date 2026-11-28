@@ -69,3 +69,12 @@ Reproduce:
 ```
 python bench/soak.py --minutes 60 --streams 16 --churn-min 5
 ```
+
+## Linux and Docker
+
+Validated with Docker Desktop (WSL2) on the same machine:
+
+- **Image:** `docker build` produces a 378 MB image (Debian trixie + FFmpeg 7). `camtensor caps` reports CUDA available with `--gpus all` and falls back to the CPU without it.
+- **NVDEC on Linux:** with `deploy/docker-compose.yml` plus the GPU override, the service discovered the 4 simulated cameras through the MediaMTX API and decoded H.264, H.265 and MJPEG on NVDEC at about 25 fps each, with no errors.
+- **Shared-memory data plane on Linux:** `camtensor client detector` inside the service container received multi-camera batches (`[4, 3, 640, 640]` f16) through `/dev/shm`.
+- **Scripts on a clean Debian container:** `fetch-test-media.sh --quick` (14/14 files verified) and `sim-cameras.sh start / status / probe / stop` all work.

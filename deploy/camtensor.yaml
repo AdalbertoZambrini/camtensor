@@ -1,0 +1,14 @@
+# Default service configuration: consume every path published to MediaMTX.
+# Mount your own file at /config/camtensor.yaml to change it.
+device: auto
+outputs:
+  detector:
+    tensor: { width: 640, height: 640, dtype: f16, resize: letterbox, normalize: unit }
+    batch: { max_size: 8, max_wait_ms: 20 }
+    keep_frame: true
+mediamtx:
+  api_url: http://mediamtx:9997
+  rtsp_url: rtsp://mediamtx:8554
+  paths: ["*"]
+  outputs: [detector]
+  gating: { mode: auto }

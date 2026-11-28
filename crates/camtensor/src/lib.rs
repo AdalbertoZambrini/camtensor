@@ -38,6 +38,8 @@
 
 mod device;
 mod engine;
+#[cfg(feature = "ffmpeg")]
+mod filesrc;
 mod mediamtx;
 mod output;
 mod stats;
@@ -47,10 +49,10 @@ mod tensor;
 pub use camtensor_core::{
     self as core, Affine2, Backpressure, BatchConfig, Codec, ColorOrder, DType, DecoderPref,
     Device, EngineConfig, Error, Frame, FrameMeta, GatingConfig, GatingMode, Interp, Layout,
-    MediaMtxConfig, Normalize, OutputConfig, ResizeMode, Result, Roi, StreamConfig, TensorDesc,
-    TensorSpec, Transport,
+    MediaMtxConfig, Normalize, OutputConfig, PlaybackConfig, Region, ResizeMode, Result, Roi,
+    StreamConfig, TensorDesc, TensorSpec, Transport,
 };
-pub use engine::{Engine, Subscription};
+pub use engine::{Engine, SnapshotOptions, Subscription};
 pub use output::OutputStats;
 pub use stats::{EngineStats, StreamStats};
 pub use tensor::{AlignedBuf, Batch, BatchItem, Tensor, TensorStorage};

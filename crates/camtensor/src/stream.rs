@@ -16,6 +16,23 @@ use camtensor_core::{
 use camtensor_decode::{Decoder, DecoderOptions};
 use camtensor_ingest::{RtspSource, SourceConfig, SourceEvent, SourceHandle};
 
+/// Where packets come from.
+pub(crate) enum Source {
+    Rtsp(SourceHandle),
+    #[cfg(feature = "ffmpeg")]
+    File(crate::filesrc::FileSource),
+}
+
+impl Source {
+    fn stop(self) {
+        match self {
+            Source::Rtsp(s) => s.stop(),
+            #[cfg(feature = "ffmpeg")]
+            Source::File(mut f) => f.stop(),
+        }
+    }
+}
+
 use crate::device::{Backend, WorkerCtx};
 use crate::output::Output;
 use crate::stats::{StreamStats, redact_url};
@@ -61,15 +78,15 @@ pub(crate) struct StreamShared {
 }
 
 impl StreamShared {
-    pub(crate) fn stats(&self, source: Option<&SourceHandle>) -> StreamStats {
+    pub(crate) fn stats(&self, source: Option<&Source>) -> StreamStats {
         let c = &self.counters;
         let info = self.info.lock();
         let (ingest_dropped, reconnects) = match source {
-            Some(s) => {
+            Some(Source::Rtsp(s)) => {
                 let st = s.stats();
                 (st.dropped, st.reconnects)
             }
-            None => (0, c.reconnects.load(Ordering::Relaxed)),
+            _ => (0, c.reconnects.load(Ordering::Relaxed)),
         };
         StreamStats {
             id: self.cfg.id.clone(),
@@ -104,7 +121,7 @@ impl StreamShared {
 /// A running stream.
 pub(crate) struct StreamHandle {
     pub(crate) shared: Arc<StreamShared>,
-    source: Option<SourceHandle>,
+    source: Option<Source>,
     thread: Option<std::thread::JoinHandle<()>>,
 }
 
@@ -165,7 +182,19 @@ pub(crate) fn spawn(
         stop: AtomicBool::new(false),
     });
     let (tx, rx) = tokio::sync::mpsc::channel(PACKET_QUEUE);
-    let source = RtspSource::spawn(rt, SourceConfig::from(&cfg), tx);
+    let source = match cfg.source_kind()? {
+        camtensor_core::SourceKind::Rtsp => {
+            Source::Rtsp(RtspSource::spawn(rt, SourceConfig::from(&cfg), tx))
+        }
+        #[cfg(feature = "ffmpeg")]
+        camtensor_core::SourceKind::File(path) => {
+            Source::File(crate::filesrc::FileSource::spawn(id.clone(), path, cfg.playback, tx)?)
+        }
+        #[cfg(not(feature = "ffmpeg"))]
+        camtensor_core::SourceKind::File(_) => {
+            return Err(Error::unavailable("file sources need the `ffmpeg` feature"));
+        }
+    };
     let pref = cfg.decoder.unwrap_or(default_decoder);
     let thread = {
         let shared = shared.clone();
@@ -260,6 +289,17 @@ impl Worker {
                     self.shared.info.lock().last_error = Some(reason);
                     // Restart gating: the next session must start at a keyframe.
                     self.gate = None;
+                    // Deliver the pictures still held by the decoder (B-frame
+                    // reordering), e.g. the last frames of a file.
+                    let mut frames = Vec::new();
+                    if let Some(d) = self.decoder.as_mut()
+                        && let Err(e) = d.flush(&mut |f| frames.push(f))
+                    {
+                        tracing::debug!(stream = %self.shared.id, "flush: {e}");
+                    }
+                    for f in frames {
+                        self.on_frame(f);
+                    }
                 }
             }
             self.update_rates();
@@ -456,7 +496,18 @@ impl Worker {
                 frame.clone()
             };
             let spec = *out.spec();
-            let plan = camtensor_preprocess::plan(src.desc.width, src.desc.height, &spec);
+            let plan = match self.shared.cfg.region {
+                // Region of interest: the output only sees that part of the
+                // frame; `transform` still maps to full-frame pixels.
+                Some(r) => {
+                    let (x, y, w, h) = r.to_pixels(src.desc.width, src.desc.height);
+                    camtensor_preprocess::plan_roi(&camtensor_core::Roi::Box { x, y, w, h }, &spec)
+                        .unwrap_or_else(|_| {
+                            camtensor_preprocess::plan(src.desc.width, src.desc.height, &spec)
+                        })
+                }
+                None => camtensor_preprocess::plan(src.desc.width, src.desc.height, &spec),
+            };
             let keep = out.cfg.keep_frame;
             let ctx = &mut self.ctx;
             let lat = &mut self.latency_ema;

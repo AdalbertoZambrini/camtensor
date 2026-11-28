@@ -74,7 +74,7 @@ def test_stream_to_numpy_and_dlpack(device):
     with open(yml, "w") as f:
         f.write(
             f"logLevel: error\napi: no\nrtspAddress: 127.0.0.1:{base}\nrtspTransports: [tcp]\n"
-            "rtmp: no\nhls: no\nwebrtc: no\nsrt: no\npaths:\n  all_others:\n"
+            "rtmp: no\nhls: no\nwebrtc: no\nsrt: no\nmoq: no\npaths:\n  all_others:\n"
         )
     mtx = subprocess.Popen([MEDIAMTX, yml], cwd=tmp, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     url = f"rtsp://127.0.0.1:{base}/cam"
@@ -115,3 +115,40 @@ def test_stream_to_numpy_and_dlpack(device):
         if pub:
             pub.kill()
         mtx.kill()
+
+
+@pytest.mark.skipif(not FFMPEG, reason="ffmpeg not available")
+def test_file_source_region_and_snapshot(tmp_path):
+    clip = tmp_path / "clip.mp4"
+    subprocess.run(
+        [FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
+         "testsrc2=size=1280x720:rate=25", "-frames:v", "30", "-c:v", "libx264", "-g", "10",
+         "-pix_fmt", "yuv420p", str(clip)],
+        check=True,
+    )
+    with ct.Engine(device="auto") as eng:
+        eng.add_output("o", 160, 160, dtype="u8", layout="nhwc", keep_frame=True,
+                       backpressure="block")
+        eng.add_stream("f", f"file:{clip}", ["o"], realtime=False, loop=False,
+                       region=(0.5, 0.0, 0.5, 1.0))
+        n, first = 0, None
+        deadline = time.time() + 20
+        while n < 30 and time.time() < deadline:
+            try:
+                b = eng.recv("o", timeout=0.5)
+            except TimeoutError:
+                continue
+            n += b.valid_count
+            first = first or b
+        assert n == 30, "every frame of the file is delivered"
+        item = first[0]
+        x, y = item.to_source(80, 80)
+        assert abs(x - 960) < 1 and abs(y - 360) < 1, "region centre maps back to full-frame pixels"
+        jpeg = eng.snapshot(item.frame, quality=85)
+        assert jpeg[:2] == b"\xff\xd8" and len(jpeg) > 10_000
+        small = eng.snapshot(item.frame, region=(0, 0, 640, 360), width=320)
+        assert small[:2] == b"\xff\xd8" and len(small) < len(jpeg)
+        with pytest.raises(ValueError):
+            eng.snapshot(item.frame, region=(5000, 0, 10, 10))
+        with pytest.raises(ValueError):
+            eng.add_stream("bad", "file:x.mp4", ["o"], region=(0.8, 0, 0.5, 1))

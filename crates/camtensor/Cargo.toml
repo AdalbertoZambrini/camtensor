@@ -21,12 +21,14 @@ ffmpeg = ["camtensor-decode/ffmpeg"]
 jpeg = ["camtensor-decode/jpeg"]
 
 [dependencies]
+bytes.workspace = true
 camtensor-core.workspace = true
 camtensor-bitstream.workspace = true
 camtensor-ingest.workspace = true
 camtensor-decode.workspace = true
 camtensor-preprocess.workspace = true
 camtensor-cuda = { workspace = true, optional = true }
+jpeg-encoder = { version = "0.7", features = ["simd"] }
 parking_lot.workspace = true
 serde.workspace = true
 serde_json.workspace = true
