@@ -16,6 +16,10 @@ All notable changes to this project are documented here. The format follows
 - Compressed-domain motion gating: keyframes only while idle, with GOP replay on activity.
 - Python bindings with DLPack, `__cuda_array_interface__` and NumPy support, plus a C ABI, a standalone service (REST and shared memory), a client crate and a CLI (`probe`, `run`, `serve`, `bench`).
 - Video files as sources (`file:` URLs, FFmpeg 6+), with real-time or as-fast-as-possible playback and looping.
+- Webcams and capture cards (`device:` URLs via libavdevice; raw YUYV/UYVY/NV12/I420/grey and MJPEG), `camtensor devices`, `ct.list_devices()`.
+- Python asyncio support: `async for batch in eng.abatches(...)`, `await eng.arecv(...)`.
+- `camtensor client` to read batches from the service's shared-memory data plane.
+- Performance: asynchronous CUDA fences (one wait per batch instead of one per image) and page-locked host memory for CPU outputs.
 - Per-stream regions of interest in normalised coordinates.
 - JPEG snapshots of kept frames (Rust, Python, C).
 - ONNX Runtime (IOBinding) and TensorRT zero-copy examples.

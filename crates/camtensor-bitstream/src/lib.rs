@@ -95,6 +95,7 @@ pub fn probe_params(codec: Codec, data: &[u8]) -> Result<VideoInfo> {
             Ok(h265::Sps::parse(sps)?.info())
         }
         Codec::Mjpeg => Ok(jpeg::FrameHeader::parse(data)?.info()),
+        Codec::RawVideo => Err(Error::Invalid("raw video has no bitstream")),
     }
 }
 
@@ -104,7 +105,7 @@ pub fn is_keyframe(codec: Codec, data: &[u8]) -> bool {
     match codec {
         Codec::H264 => h264::is_keyframe(data),
         Codec::H265 => h265::is_keyframe(data),
-        Codec::Mjpeg => true,
+        Codec::Mjpeg | Codec::RawVideo => true,
     }
 }
 

@@ -96,6 +96,9 @@ impl FfmpegDecoder {
             Codec::H264 => (c"h264", 27),
             Codec::H265 => (c"hevc", 173),
             Codec::Mjpeg => (c"mjpeg", 7),
+            Codec::RawVideo => {
+                return Err(Error::unavailable("raw video needs no decoder"));
+            }
         };
         // SAFETY: NUL-terminated name; returns NULL if not found.
         let mut codec = unsafe { (api.avcodec_find_decoder_by_name)(name.as_ptr()) };

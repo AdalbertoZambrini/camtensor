@@ -45,10 +45,11 @@ camtensor on NVDEC keeps **48 full-HD cameras in real time on less than one CPU 
 - **Multi-camera batching:** batches close when full or at a deadline. A static batch size can be padded, backpressure is configurable (`drop_oldest`, `latest_only`, `block`), and buffer pools are recycled.
 - **Region crops for multi-stage pipelines:** keep the full-resolution frame, then cut **boxes, affine warps or crops aligned from 5 keypoints** for a second model, on the GPU, in one launch, with no frame leaving the device.
 - **Video files as sources:** `file:` URLs (MP4, MKV, MOV, raw H.264/H.265, MJPEG) go through the same pipeline. Files can be read in real time like a camera, or as fast as the model accepts with no frame dropped, which suits offline evaluation. They can loop.
+- **Webcams and capture cards:** `device:` URLs (DirectShow on Windows, V4L2 on Linux, AVFoundation on macOS). Raw YUYV/NV12 frames are fed straight to the preprocessing, and MJPEG devices go through NVDEC. `camtensor devices` lists what is connected.
 - **Regions of interest:** each camera can be restricted to part of the frame (normalised coordinates, so a resolution change does not break it). Results still map back to full-frame pixels.
 - **JPEG snapshots:** `snapshot(frame)` encodes a kept frame, or a region of it, without decoding again. The colour conversion runs on the GPU.
 - **Compressed-domain motion gating:** packet sizes are read without decoding. Idle cameras decode keyframes only, and the buffered GOP is replayed the moment activity starts. This cut CPU by 54% on a mostly static scene.
-- **Everywhere:** Rust crate, Python wheel (`abi3`, 1.6 MB, DLPack / `__cuda_array_interface__` / NumPy), C ABI, a standalone service (REST control plane and shared-memory data plane), and a CLI (`probe`, `run`, `serve`, `bench`). Prometheus metrics are built in.
+- **Everywhere:** Rust crate, Python wheel (`abi3`, 1.6 MB, DLPack / `__cuda_array_interface__` / NumPy / `async for`), C ABI, a standalone service (REST control plane and shared-memory data plane), and a CLI (`probe`, `run`, `serve`, `bench`). Prometheus metrics are built in.
 - **Linux and Windows,** on x86_64 and ARM64. The GPU path needs only the NVIDIA driver at runtime; the CPU path runs on any processor.
 
 ## Install
@@ -92,6 +93,10 @@ streams:
     url: file:videos/day1.mp4   # offline evaluation on a file
     outputs: [detector]
     playback: { realtime: false, loop: false }
+  - id: desk
+    url: "device:USB Camera"      # webcam (camtensor devices lists them)
+    outputs: [detector]
+    capture: { width: 1280, height: 720, fps: 30 }
 mediamtx:                       # optional auto-discovery
   api_url: http://127.0.0.1:9997
   rtsp_url: rtsp://127.0.0.1:8554
@@ -169,7 +174,7 @@ curl localhost:7070/v1/stats
 | `camtensor` | Engine: streams, batching, crops, stats |
 | `camtensor-py`, `camtensor-capi`, `camtensor-service`, `camtensor-client`, `camtensor-cli` | Interfaces |
 
-See [docs/architecture.md](docs/architecture.md) for the design and [docs/testing.md](docs/testing.md) for test media and camera simulation.
+See [docs/python.md](docs/python.md) for the Python API, [docs/architecture.md](docs/architecture.md) for the design and [docs/testing.md](docs/testing.md) for test media and camera simulation.
 
 ## Development
 

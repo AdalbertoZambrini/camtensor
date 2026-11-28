@@ -46,6 +46,7 @@ async fn collect(rx: &mut mpsc::Receiver<SourceEvent>, n: usize, c: &mut Collect
                     eprintln!("disconnected: {reason}");
                     c.disconnects.push(reason)
                 }
+                SourceEvent::Frame(_) => {}
             }
         }
     })

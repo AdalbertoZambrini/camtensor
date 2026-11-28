@@ -20,8 +20,8 @@ pub mod time;
 
 pub use codec::{Codec, EncodedPacket, StreamParams};
 pub use config::{
-    Backpressure, BatchConfig, DecoderPref, EngineConfig, GatingConfig, GatingMode, MediaMtxConfig,
-    OutputConfig, PlaybackConfig, Region, SourceKind, StreamConfig, Transport,
+    Backpressure, BatchConfig, CaptureConfig, DecoderPref, EngineConfig, GatingConfig, GatingMode,
+    MediaMtxConfig, OutputConfig, PlaybackConfig, Region, SourceKind, StreamConfig, Transport,
 };
 pub use error::{Error, Result};
 pub use frame::{

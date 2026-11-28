@@ -56,6 +56,7 @@ fn main() {
     // Split into packets; timestamps are synthetic (decode order, 25 fps).
     let units: Vec<(Vec<u8>, bool)> = match codec {
         Codec::Mjpeg => annexb::split_jpegs(&data).into_iter().map(|j| (j, true)).collect(),
+        Codec::RawVideo => panic!("raw video needs no decoder"),
         Codec::H264 | Codec::H265 => {
             let std =
                 if codec == Codec::H264 { annexb::Standard::H264 } else { annexb::Standard::H265 };

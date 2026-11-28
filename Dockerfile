@@ -20,9 +20,9 @@ LABEL org.opencontainers.image.title="camtensor" \
       org.opencontainers.image.description="Camera streams to inference-ready tensors" \
       org.opencontainers.image.source="https://github.com/AdalbertoZambrini/camtensor" \
       org.opencontainers.image.licenses="Apache-2.0"
-# libavcodec/libavformat (FFmpeg 7) for CPU decoding and file sources.
+# libavcodec/libavformat/libavdevice (FFmpeg 7): CPU decoding, files, capture devices.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends libavcodec61 libavformat61 ca-certificates \
+    && apt-get install -y --no-install-recommends libavcodec61 libavformat61 libavdevice61 ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --system --uid 10001 camtensor
 COPY --from=build /usr/local/bin/camtensor /usr/local/bin/camtensor

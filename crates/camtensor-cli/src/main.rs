@@ -26,6 +26,12 @@ struct Cli {
 enum Cmd {
     /// Show available backends (CUDA/NVDEC, libavcodec, JPEG).
     Caps,
+    /// List capture devices (webcams); use one as `device:<name>`.
+    Devices {
+        /// Backend (dshow, v4l2, avfoundation); default: the platform's.
+        #[arg(long)]
+        backend: Option<String>,
+    },
     /// Connect to a camera and report codec, resolution, decoder and rates.
     Probe {
         /// rtsp:// URL.
@@ -141,6 +147,27 @@ fn main() -> Result<()> {
             Ok(())
         }
         Cmd::Probe { url, seconds, device } => probe(&url, seconds, &device),
+        Cmd::Devices { backend } => {
+            let list = camtensor::list_capture_devices(backend.as_deref())?;
+            if list.is_empty() {
+                println!("no capture devices found");
+            }
+            for (name, desc) in list {
+                // dshow accepts the friendly name; other backends use the
+                // device path/name.
+                if !desc.is_empty()
+                    && cfg!(windows)
+                    && backend.as_deref().unwrap_or("dshow") == "dshow"
+                {
+                    println!("device:{desc}");
+                } else if desc.is_empty() || desc == name {
+                    println!("device:{name}");
+                } else {
+                    println!("device:{name}    ({desc})");
+                }
+            }
+            Ok(())
+        }
         Cmd::Run { config, interval, duration } => run(&config, interval, duration),
         Cmd::Serve { config, http, data, device } => serve(config, &http, &data, device),
         Cmd::Bench(args) => bench(args),

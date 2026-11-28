@@ -61,6 +61,17 @@ While the scene is idle, only keyframes are decoded. When packet sizes show acti
 
 Gating relies on packet sizes, so it does not work on cameras configured for constant bitrate (CBR); use VBR.
 
+## Engine optimisations (A/B, same machine)
+
+32 streams of 1080p H.264 (no B-frames) on NVDEC, CPU-limited laptop, two
+alternating rounds each:
+
+| Change | Scenario | Before | After |
+|---|---|---|---|
+| Asynchronous CUDA fences per batch instead of a host wait after every image | GPU busy with inference in parallel (99% utilisation) | 131–139% CPU | **85–96% CPU** (−30%), same throughput and p50 latency |
+| Same | GPU otherwise idle | 25–28% CPU | 24–32% CPU (no measurable difference) |
+| Page-locked host memory for CPU outputs (16 streams, f32 to host) | GPU to CPU tensors | p50 6.6–6.7 ms, 27–31% CPU | **p50 4.2–4.8 ms**, 20–25% CPU |
+
 ## Kernels and decoders (micro-benchmarks)
 
 | Operation | Time |

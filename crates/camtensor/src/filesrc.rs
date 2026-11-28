@@ -71,7 +71,7 @@ impl ToAnnexB {
     fn new(codec: Codec, extradata: &[u8]) -> Result<Self> {
         let bad = |e: camtensor_bitstream::Error| Error::Bitstream(e.to_string());
         let (param_sets, length_size) = match codec {
-            Codec::Mjpeg => (Vec::new(), None),
+            Codec::Mjpeg | Codec::RawVideo => (Vec::new(), None),
             _ if extradata.is_empty() || annexb::starts_with_start_code(extradata) => {
                 (extradata.to_vec(), None)
             }

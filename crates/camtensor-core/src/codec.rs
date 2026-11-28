@@ -15,6 +15,10 @@ pub enum Codec {
     H265,
     /// Motion JPEG (each packet is a complete baseline JPEG image).
     Mjpeg,
+    /// Uncompressed frames from a capture device (webcam); no decoder is
+    /// involved, sources deliver decoded frames directly.
+    #[serde(rename = "rawvideo")]
+    RawVideo,
 }
 
 impl fmt::Display for Codec {
@@ -23,6 +27,7 @@ impl fmt::Display for Codec {
             Codec::H264 => "h264",
             Codec::H265 => "h265",
             Codec::Mjpeg => "mjpeg",
+            Codec::RawVideo => "rawvideo",
         })
     }
 }

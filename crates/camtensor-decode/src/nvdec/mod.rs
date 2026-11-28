@@ -88,6 +88,7 @@ impl NvdecDecoder {
             Codec::H264 => nv::cudaVideoCodec_H264,
             Codec::H265 => nv::cudaVideoCodec_HEVC,
             Codec::Mjpeg => nv::cudaVideoCodec_JPEG,
+            Codec::RawVideo => return Err(Error::unavailable("raw video needs no decoder")),
         };
         let caps = nv::decoder_caps(&device, cuvid_codec, nv::cudaVideoChromaFormat_420, 0)?;
         if !caps.supported {

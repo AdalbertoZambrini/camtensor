@@ -167,6 +167,7 @@ fn generate(cli: &Path, spec: &Spec) -> std::result::Result<Media, String> {
         .args(&spec.encoder);
 
     let (packets, width, height) = match spec.codec {
+        Codec::RawVideo => return Err("raw video is not encoded".into()),
         Codec::Mjpeg => {
             let out = base("mjpeg");
             run(enc.args(["-f", "mjpeg"]).arg(&out))?;

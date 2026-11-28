@@ -270,7 +270,7 @@ fn search_dirs() -> Vec<PathBuf> {
     dirs
 }
 
-fn open_lib(path: &Path) -> std::result::Result<Library, libloading::Error> {
+pub(crate) fn open_lib(path: &Path) -> std::result::Result<Library, libloading::Error> {
     #[cfg(windows)]
     if path.is_absolute() {
         use libloading::os::windows::{

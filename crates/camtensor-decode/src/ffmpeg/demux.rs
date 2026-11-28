@@ -19,6 +19,12 @@
 //!
 //! libavformat 59 (FFmpeg 5.x) stores `codecpar` later in `AVStream`, so it
 //! is rejected for file input (RTSP input does not use libavformat).
+//!
+//! Capture devices (webcams) are opened through libavdevice (`dshow`,
+//! `v4l2`, `avfoundation`). For uncompressed video the size and pixel
+//! format are read from `AVCodecParameters`, whose layout differs between
+//! libavformat 60.0–60.15 (FFmpeg 6.0) and 60.16+ (FFmpeg 6.1+, which
+//! inserted `coded_side_data`); both layouts are handled.
 
 use std::ffi::{CString, c_char, c_int, c_uint, c_void};
 use std::path::{Path, PathBuf};
@@ -75,10 +81,65 @@ struct AVCodecParametersHead {
     extradata_size: c_int,
 }
 
+/// `AVCodecParameters` up to `height`, FFmpeg 6.1+ (libavformat >= 60.16).
+#[repr(C)]
+struct CodecParNew {
+    codec_type: c_int,
+    codec_id: c_int,
+    codec_tag: u32,
+    extradata: *mut u8,
+    extradata_size: c_int,
+    coded_side_data: *mut c_void,
+    nb_coded_side_data: c_int,
+    format: c_int,
+    bit_rate: i64,
+    bits_per_coded_sample: c_int,
+    bits_per_raw_sample: c_int,
+    profile: c_int,
+    level: c_int,
+    width: c_int,
+    height: c_int,
+}
+
+/// `AVCodecParameters` up to `height`, FFmpeg 6.0 (libavformat 60.0–60.15).
+#[repr(C)]
+struct CodecParOld {
+    codec_type: c_int,
+    codec_id: c_int,
+    codec_tag: u32,
+    extradata: *mut u8,
+    extradata_size: c_int,
+    format: c_int,
+    bit_rate: i64,
+    bits_per_coded_sample: c_int,
+    bits_per_raw_sample: c_int,
+    profile: c_int,
+    level: c_int,
+    width: c_int,
+    height: c_int,
+}
+
+#[repr(C)]
+struct AVDeviceInfo {
+    device_name: *mut c_char,
+    device_description: *mut c_char,
+    media_types: *mut c_int,
+    nb_media_types: c_int,
+}
+
+#[repr(C)]
+struct AVDeviceInfoList {
+    devices: *mut *mut AVDeviceInfo,
+    nb_devices: c_int,
+    default_device: c_int,
+}
+
 type FmtCtx = c_void;
 
 struct FormatApi {
     _lib: Library,
+    minor: u32,
+    av_find_input_format: unsafe extern "C" fn(*const c_char) -> *const c_void,
     avformat_open_input: unsafe extern "C" fn(
         *mut *mut FmtCtx,
         *const c_char,
@@ -107,30 +168,154 @@ fn load_format() -> std::result::Result<FormatApi, String> {
             "file input needs FFmpeg 6 or newer (libavformat >= 60); found libavcodec {major}"
         ));
     }
-    let name = if cfg!(windows) {
-        format!("avformat-{major}.dll")
+    let lib = open_sibling(&api.location, "avformat", major)?;
+    bind(lib)
+}
+
+/// File name of an FFmpeg library for this platform.
+fn lib_file(base: &str, major: u32) -> String {
+    if cfg!(windows) {
+        format!("{base}-{major}.dll")
     } else if cfg!(target_os = "macos") {
-        format!("libavformat.{major}.dylib")
+        format!("lib{base}.{major}.dylib")
     } else {
-        format!("libavformat.so.{major}")
-    };
-    // Prefer the directory libavcodec was loaded from.
+        format!("lib{base}.so.{major}")
+    }
+}
+
+/// Opens `base` from the directory libavcodec was loaded from, then from
+/// the system loader.
+fn open_sibling(
+    avcodec_location: &str,
+    base: &str,
+    major: u32,
+) -> std::result::Result<Library, String> {
+    let name = lib_file(base, major);
     let mut candidates: Vec<PathBuf> = Vec::new();
-    let loc = Path::new(&api.location);
-    if let Some(dir) = loc.parent().filter(|d| d.is_dir()) {
+    if let Some(dir) = Path::new(avcodec_location).parent().filter(|d| d.is_dir()) {
         candidates.push(dir.join(&name));
     }
     candidates.push(PathBuf::from(&name));
     let mut errors = Vec::new();
     for c in candidates {
-        // SAFETY: loading libavformat runs its initialisers, which have no
-        // preconditions.
-        match unsafe { Library::new(&c) } {
-            Ok(lib) => return bind(lib).map_err(|e| format!("{}: {e}", c.display())),
+        // Same loader as libavcodec: on Windows, dependencies (avfilter,
+        // swscale, ...) resolve from the library's own directory.
+        match sys::open_lib(&c) {
+            Ok(lib) => return Ok(lib),
             Err(e) => errors.push(format!("{}: {e}", c.display())),
         }
     }
-    Err(format!("libavformat not found ({})", errors.join("; ")))
+    Err(format!("lib{base} not found ({})", errors.join("; ")))
+}
+
+/// libavdevice and the libavutil dictionary helpers (capture devices).
+struct DeviceApi {
+    _dev: Library,
+    _util: Library,
+    avdevice_list_input_sources: unsafe extern "C" fn(
+        *const c_void,
+        *const c_char,
+        *mut c_void,
+        *mut *mut AVDeviceInfoList,
+    ) -> c_int,
+    avdevice_free_list_devices: unsafe extern "C" fn(*mut *mut AVDeviceInfoList),
+    av_dict_set:
+        unsafe extern "C" fn(*mut *mut c_void, *const c_char, *const c_char, c_int) -> c_int,
+    av_dict_free: unsafe extern "C" fn(*mut *mut c_void),
+}
+
+static DEVICE: OnceLock<std::result::Result<DeviceApi, String>> = OnceLock::new();
+
+fn device_api() -> Result<&'static DeviceApi> {
+    DEVICE.get_or_init(load_device).as_ref().map_err(Error::unavailable)
+}
+
+fn load_device() -> std::result::Result<DeviceApi, String> {
+    format_api().map_err(|e| e.to_string())?;
+    let api = sys::api().map_err(|e| e.to_string())?;
+    let major = api.avcodec_major;
+    let dev = open_sibling(&api.location, "avdevice", major)?;
+    let util = open_sibling(&api.location, "avutil", major - 2)?;
+    macro_rules! sym {
+        ($lib:ident, $name:literal) => {{
+            // SAFETY: looked up by C name; field types match the FFmpeg 6–8
+            // prototypes.
+            let s = unsafe { $lib.get(concat!($name, "\0").as_bytes()) }
+                .map_err(|e| format!("missing symbol {}: {e}", $name))?;
+            *s
+        }};
+    }
+    let register: unsafe extern "C" fn() = sym!(dev, "avdevice_register_all");
+    // SAFETY: registers the device (de)muxers; idempotent, no preconditions.
+    unsafe { register() };
+    Ok(DeviceApi {
+        avdevice_list_input_sources: sym!(dev, "avdevice_list_input_sources"),
+        avdevice_free_list_devices: sym!(dev, "avdevice_free_list_devices"),
+        av_dict_set: sym!(util, "av_dict_set"),
+        av_dict_free: sym!(util, "av_dict_free"),
+        _dev: dev,
+        _util: util,
+    })
+}
+
+/// Default capture backend of this platform.
+pub fn default_capture_backend() -> &'static str {
+    if cfg!(windows) {
+        "dshow"
+    } else if cfg!(target_os = "macos") {
+        "avfoundation"
+    } else {
+        "v4l2"
+    }
+}
+
+/// Lists capture devices of `backend` as `(name, description)`.
+pub fn list_devices(backend: &str) -> Result<Vec<(String, String)>> {
+    let fmt = format_api()?;
+    let dev = device_api()?;
+    let b = CString::new(backend).map_err(|_| Error::config("bad backend name"))?;
+    // SAFETY: NUL-terminated name; returns NULL if unknown.
+    let ifmt = unsafe { (fmt.av_find_input_format)(b.as_ptr()) };
+    if ifmt.is_null() {
+        return Err(Error::unavailable(format!("capture backend '{backend}' not available")));
+    }
+    let mut list: *mut AVDeviceInfoList = std::ptr::null_mut();
+    // SAFETY: valid input format, no device name/options, valid out-pointer.
+    let r = unsafe {
+        (dev.avdevice_list_input_sources)(ifmt, std::ptr::null(), std::ptr::null_mut(), &mut list)
+    };
+    if r < 0 || list.is_null() {
+        return Err(Error::Ingest(format!("cannot list {backend} devices ({r})")));
+    }
+    let mut out = Vec::new();
+    // SAFETY: `list` was filled by libavdevice; strings are NUL-terminated;
+    // the list is freed exactly once below.
+    unsafe {
+        let l = &*list;
+        for i in 0..l.nb_devices.max(0) as usize {
+            let d = &**l.devices.add(i);
+            let s = |p: *mut c_char| {
+                if p.is_null() {
+                    String::new()
+                } else {
+                    std::ffi::CStr::from_ptr(p).to_string_lossy().into_owned()
+                }
+            };
+            // Keep video-capable devices (AVMEDIA_TYPE_VIDEO = 0); devices
+            // without media-type information are kept too.
+            let types = if d.media_types.is_null() || d.nb_media_types <= 0 {
+                &[][..]
+            } else {
+                std::slice::from_raw_parts(d.media_types, d.nb_media_types as usize)
+            };
+            if !types.is_empty() && !types.contains(&0) {
+                continue;
+            }
+            out.push((s(d.device_name), s(d.device_description)));
+        }
+        (dev.avdevice_free_list_devices)(&mut list);
+    }
+    Ok(out)
 }
 
 fn bind(lib: Library) -> std::result::Result<FormatApi, String> {
@@ -149,7 +334,11 @@ fn bind(lib: Library) -> std::result::Result<FormatApi, String> {
     if major < 60 {
         return Err(format!("libavformat {major} is too old (need >= 60)"));
     }
+    // SAFETY: no arguments, no preconditions.
+    let minor = (unsafe { version() } >> 8) & 0xff;
     Ok(FormatApi {
+        minor,
+        av_find_input_format: sym!("av_find_input_format"),
         avformat_open_input: sym!("avformat_open_input"),
         avformat_find_stream_info: sym!("avformat_find_stream_info"),
         av_find_best_stream: sym!("av_find_best_stream"),
@@ -170,6 +359,19 @@ pub struct DemuxInfo {
     pub extradata: Vec<u8>,
     /// Average frame rate if known.
     pub fps: Option<f64>,
+    /// Size and FFmpeg pixel format id of uncompressed video.
+    pub raw: Option<RawVideoInfo>,
+}
+
+/// Uncompressed video description.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RawVideoInfo {
+    /// Width in pixels.
+    pub width: u32,
+    /// Height in pixels.
+    pub height: u32,
+    /// `AVPixelFormat` id (e.g. 1 = YUYV422, 15 = UYVY422, 23 = NV12).
+    pub pix_fmt: i32,
 }
 
 /// One demuxed video packet.
@@ -209,27 +411,69 @@ impl std::fmt::Debug for Demuxer {
 impl Demuxer {
     /// Opens `path` and selects its best video stream.
     pub fn open(path: &Path) -> Result<Self> {
-        let fmt = format_api()?;
-        let api = sys::api()?;
         let cpath = CString::new(path.to_string_lossy().as_bytes())
             .map_err(|_| Error::config("file path contains a NUL byte"))?;
+        Self::open_input(&cpath, std::ptr::null(), &[], &path.display().to_string())
+    }
+
+    /// Opens a capture device, e.g. `("dshow", "video=USB Camera")` or
+    /// `("v4l2", "/dev/video0")`, with demuxer options such as
+    /// `video_size`, `framerate`, `pixel_format` / `input_format`.
+    pub fn open_device(backend: &str, device: &str, options: &[(String, String)]) -> Result<Self> {
+        let fmt = format_api()?;
+        device_api()?;
+        let b = CString::new(backend).map_err(|_| Error::config("bad backend name"))?;
+        // SAFETY: NUL-terminated name; returns NULL if unknown.
+        let ifmt = unsafe { (fmt.av_find_input_format)(b.as_ptr()) };
+        if ifmt.is_null() {
+            return Err(Error::unavailable(format!("capture backend '{backend}' not available")));
+        }
+        let url =
+            CString::new(device).map_err(|_| Error::config("device name contains a NUL byte"))?;
+        Self::open_input(&url, ifmt, options, &format!("{backend}:{device}"))
+    }
+
+    fn open_input(
+        url: &CString,
+        ifmt: *const c_void,
+        options: &[(String, String)],
+        label: &str,
+    ) -> Result<Self> {
+        let fmt = format_api()?;
+        let api = sys::api()?;
+        let mut dict: *mut c_void = std::ptr::null_mut();
+        if !options.is_empty() {
+            let dev = device_api()?;
+            for (k, v) in options {
+                let (k, v) = (
+                    CString::new(k.as_str()).map_err(|_| Error::config("bad option"))?,
+                    CString::new(v.as_str()).map_err(|_| Error::config("bad option"))?,
+                );
+                // SAFETY: valid dictionary out-pointer and NUL-terminated strings
+                // (copied by libavutil).
+                unsafe { (dev.av_dict_set)(&mut dict, k.as_ptr(), v.as_ptr(), 0) };
+            }
+        }
         let mut ctx: *mut FmtCtx = std::ptr::null_mut();
-        // SAFETY: valid out-pointer and NUL-terminated path; no format or
-        // options are forced.
+        // SAFETY: valid out-pointer, NUL-terminated URL, optional input
+        // format and options dictionary (consumed entries are removed).
         let r = unsafe {
             (fmt.avformat_open_input)(
                 &mut ctx,
-                cpath.as_ptr(),
-                std::ptr::null(),
-                std::ptr::null_mut(),
+                url.as_ptr(),
+                ifmt,
+                if dict.is_null() { std::ptr::null_mut() } else { &mut dict },
             )
         };
+        if !dict.is_null()
+            && let Ok(dev) = device_api()
+        {
+            // SAFETY: dictionary allocated by av_dict_set.
+            unsafe { (dev.av_dict_free)(&mut dict) };
+        }
+        let path = label;
         if r < 0 {
-            return Err(Error::Ingest(format!(
-                "cannot open {}: {}",
-                path.display(),
-                api.err_str(r)
-            )));
+            return Err(Error::Ingest(format!("cannot open {path}: {}", api.err_str(r))));
         }
         let mut d = Demuxer {
             fmt,
@@ -239,16 +483,12 @@ impl Demuxer {
             index: -1,
             time_base: (1, 90_000),
             start: 0,
-            info: DemuxInfo { codec: Codec::H264, extradata: Vec::new(), fps: None },
+            info: DemuxInfo { codec: Codec::H264, extradata: Vec::new(), fps: None, raw: None },
         };
         // SAFETY: `ctx` is an open format context.
         let r = unsafe { (fmt.avformat_find_stream_info)(ctx, std::ptr::null_mut()) };
         if r < 0 {
-            return Err(Error::Ingest(format!(
-                "cannot read {}: {}",
-                path.display(),
-                api.err_str(r)
-            )));
+            return Err(Error::Ingest(format!("cannot read {path}: {}", api.err_str(r))));
         }
         const AVMEDIA_TYPE_VIDEO: c_int = 0;
         // SAFETY: open context; no decoder out-pointer requested.
@@ -256,12 +496,13 @@ impl Demuxer {
             (fmt.av_find_best_stream)(ctx, AVMEDIA_TYPE_VIDEO, -1, -1, std::ptr::null_mut(), 0)
         };
         if idx < 0 {
-            return Err(Error::Ingest(format!("{}: no video stream", path.display())));
+            return Err(Error::Ingest(format!("{path}: no video stream")));
         }
+        let new_layout = fmt.minor >= 16 || sys::api()?.avcodec_major > 60;
         // SAFETY: the context and its stream array are valid after
         // find_stream_info; `idx` < nb_streams as returned by libavformat;
         // field layouts are documented in the module docs.
-        let (codec_id, extradata, time_base, fps, start) = unsafe {
+        let (codec_id, extradata, time_base, fps, start, raw) = unsafe {
             let head = &*(ctx as *const AVFormatContextHead);
             if idx as c_uint >= head.nb_streams {
                 return Err(Error::Ingest("invalid stream index".into()));
@@ -276,16 +517,28 @@ impl Demuxer {
             let fps = (st.avg_frame_rate.num > 0 && st.avg_frame_rate.den > 0)
                 .then(|| st.avg_frame_rate.num as f64 / st.avg_frame_rate.den as f64);
             let start = if st.start_time == AV_NOPTS_VALUE { 0 } else { st.start_time };
-            (par.codec_id, extra, (st.time_base.num, st.time_base.den), fps, start)
+            let (w, h, f) = if new_layout {
+                let r = &*(st.codecpar as *const CodecParNew);
+                (r.width, r.height, r.format)
+            } else {
+                let r = &*(st.codecpar as *const CodecParOld);
+                (r.width, r.height, r.format)
+            };
+            let raw = (w > 0 && h > 0).then_some(RawVideoInfo {
+                width: w as u32,
+                height: h as u32,
+                pix_fmt: f,
+            });
+            (par.codec_id, extra, (st.time_base.num, st.time_base.den), fps, start, raw)
         };
         let codec = match codec_id {
             27 => Codec::H264,
             173 => Codec::H265,
             7 => Codec::Mjpeg,
+            13 => Codec::RawVideo,
             other => {
                 return Err(Error::Unavailable(format!(
-                    "{}: unsupported video codec id {other} (H.264, H.265 and MJPEG are supported)",
-                    path.display()
+                    "{path}: unsupported video codec id {other} (H.264, H.265, MJPEG and raw video are supported)"
                 )));
             }
         };
@@ -297,7 +550,12 @@ impl Demuxer {
         d.index = idx;
         d.time_base = if time_base.0 > 0 && time_base.1 > 0 { time_base } else { (1, 90_000) };
         d.start = start;
-        d.info = DemuxInfo { codec, extradata, fps };
+        d.info = DemuxInfo {
+            codec,
+            extradata,
+            fps,
+            raw: if codec == Codec::RawVideo { raw } else { None },
+        };
         Ok(d)
     }
 

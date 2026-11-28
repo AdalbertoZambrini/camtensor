@@ -39,7 +39,7 @@ fn json_to_py<'py>(py: Python<'py>, v: &impl serde::Serialize) -> PyResult<Bound
 }
 
 /// A camtensor engine: RTSP streams in, batches of tensors out.
-#[pyclass(module = "camtensor._camtensor", name = "Engine", frozen)]
+#[pyclass(module = "camtensor._camtensor", name = "Engine", frozen, subclass)]
 struct PyEngine {
     inner: RsEngine,
 }
@@ -780,6 +780,14 @@ fn version() -> &'static str {
     camtensor::VERSION
 }
 
+/// Capture devices (webcams) as a list of `(name, description)`; use
+/// `"device:" + name` (dshow on Windows: the description) as a stream URL.
+#[pyfunction]
+#[pyo3(signature = (backend=None))]
+fn list_devices(backend: Option<&str>) -> PyResult<Vec<(String, String)>> {
+    camtensor::list_capture_devices(backend).map_err(to_py)
+}
+
 /// Which optional backends are available on this machine.
 #[pyfunction]
 fn capabilities<'py>(py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
@@ -797,6 +805,7 @@ fn _camtensor(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyTensor>()?;
     m.add_function(wrap_pyfunction!(version, m)?)?;
     m.add_function(wrap_pyfunction!(capabilities, m)?)?;
+    m.add_function(wrap_pyfunction!(list_devices, m)?)?;
     m.add("__version__", camtensor::VERSION)?;
     Ok(())
 }

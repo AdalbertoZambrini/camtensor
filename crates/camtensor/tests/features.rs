@@ -327,3 +327,37 @@ fn jpeg_size(j: &[u8]) -> Option<(u32, u32)> {
     }
     None
 }
+
+#[test]
+fn webcam_if_present() {
+    let _g = SERIAL.lock().unwrap_or_else(|p| p.into_inner());
+    ffmpeg_libs();
+    let devices = match camtensor::list_capture_devices(None) {
+        Ok(d) if !d.is_empty() => d,
+        Ok(_) => {
+            eprintln!("skipped: no capture device");
+            return;
+        }
+        Err(e) => {
+            eprintln!("skipped: {e}");
+            return;
+        }
+    };
+    let (name, desc) = &devices[0];
+    let url = if cfg!(windows) && !desc.is_empty() {
+        format!("device:{desc}")
+    } else {
+        format!("device:{name}")
+    };
+    let mut out = out_cfg(160, 120);
+    out.backpressure = camtensor::Backpressure::DropOldest;
+    let e = engine(url, PlaybackConfig::default(), None, out);
+    let b = e.recv("o", Some(Duration::from_secs(20))).expect("a webcam frame");
+    let item = &b.items()[0];
+    assert!(item.meta.src_width > 0 && item.meta.src_height > 0);
+    let jpeg = e.snapshot(item.frame.as_ref().unwrap(), &SnapshotOptions::default()).unwrap();
+    assert_eq!(jpeg_size(&jpeg), Some((item.meta.src_width, item.meta.src_height)));
+    let st = e.stats().streams[0].clone();
+    assert!(matches!(st.codec.as_deref(), Some("rawvideo") | Some("mjpeg")), "{st:?}");
+    e.shutdown();
+}

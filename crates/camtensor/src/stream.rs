@@ -21,6 +21,8 @@ pub(crate) enum Source {
     Rtsp(SourceHandle),
     #[cfg(feature = "ffmpeg")]
     File(crate::filesrc::FileSource),
+    #[cfg(feature = "ffmpeg")]
+    Device(crate::capture::CaptureSource),
 }
 
 impl Source {
@@ -29,6 +31,8 @@ impl Source {
             Source::Rtsp(s) => s.stop(),
             #[cfg(feature = "ffmpeg")]
             Source::File(mut f) => f.stop(),
+            #[cfg(feature = "ffmpeg")]
+            Source::Device(mut d) => d.stop(),
         }
     }
 }
@@ -190,6 +194,14 @@ pub(crate) fn spawn(
         camtensor_core::SourceKind::File(path) => {
             Source::File(crate::filesrc::FileSource::spawn(id.clone(), path, cfg.playback, tx)?)
         }
+        #[cfg(feature = "ffmpeg")]
+        camtensor_core::SourceKind::Device(name) => Source::Device(
+            crate::capture::CaptureSource::spawn(id.clone(), name, cfg.capture.clone(), tx)?,
+        ),
+        #[cfg(not(feature = "ffmpeg"))]
+        camtensor_core::SourceKind::Device(_) => {
+            return Err(Error::unavailable("capture devices need the `ffmpeg` feature"));
+        }
         #[cfg(not(feature = "ffmpeg"))]
         camtensor_core::SourceKind::File(_) => {
             return Err(Error::unavailable("file sources need the `ffmpeg` feature"));
@@ -282,6 +294,7 @@ impl Worker {
                 }
                 SourceEvent::ParamsChanged(p) => self.on_params(p),
                 SourceEvent::Packet(pkt) => self.on_packet(pkt),
+                SourceEvent::Frame(raw) => self.on_raw_frame(raw),
                 SourceEvent::Disconnected { reason } => {
                     let c = &self.shared.counters;
                     c.connected.store(false, Ordering::Relaxed);
@@ -429,6 +442,32 @@ impl Worker {
             }
         }
         self.feed = feed;
+    }
+
+    /// A frame delivered already decoded (capture devices): no gate, no decoder.
+    fn on_raw_frame(&mut self, raw: camtensor_ingest::RawFrame) {
+        {
+            let mut info = self.shared.info.lock();
+            if info.decoder.is_none() {
+                info.decoder = Some("raw".into());
+            }
+        }
+        let c = &self.shared.counters;
+        c.packets.fetch_add(1, Ordering::Relaxed);
+        c.bytes.fetch_add(raw.frame.desc.byte_len() as u64, Ordering::Relaxed);
+        c.decoded_packets.fetch_add(1, Ordering::Relaxed);
+        self.win_packets += 1;
+        self.pending.push_back(PacketInfo {
+            pts: raw.frame.pts,
+            seq: raw.seq,
+            keyframe: true,
+            recv_time_ns: raw.recv_time_ns,
+            capture_time_ns: None,
+        });
+        while self.pending.len() > 64 {
+            self.pending.pop_front();
+        }
+        self.on_frame(raw.frame);
     }
 
     fn record_error(&self, e: &Error) {

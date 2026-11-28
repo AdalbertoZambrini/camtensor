@@ -36,6 +36,8 @@
 
 #![warn(missing_docs)]
 
+#[cfg(feature = "ffmpeg")]
+mod capture;
 mod device;
 mod engine;
 #[cfg(feature = "ffmpeg")]
@@ -59,6 +61,14 @@ pub use tensor::{AlignedBuf, Batch, BatchItem, Tensor, TensorStorage};
 
 /// Version of the camtensor crate.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// Lists capture devices (webcams) as `(name, description)`, using the
+/// platform's backend (`dshow`, `v4l2`, `avfoundation`) unless `backend` is
+/// given. Use a name as `device:<name>` in a stream URL.
+#[cfg(feature = "ffmpeg")]
+pub fn list_capture_devices(backend: Option<&str>) -> Result<Vec<(String, String)>> {
+    capture::list_devices(backend)
+}
 
 /// Reports which optional backends are usable on this machine.
 pub fn capabilities() -> Capabilities {
