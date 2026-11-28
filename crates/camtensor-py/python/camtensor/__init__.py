@@ -41,21 +41,21 @@ class Engine(_NativeEngine):
             ...
     """
 
-    async def arecv(self, output, timeout=None):
+    async def arecv(self, output, timeout=None, device=None):
         """Awaitable :meth:`recv`: waits in a worker thread (the GIL is
         released while waiting), so the event loop stays responsive."""
         loop = _asyncio.get_running_loop()
-        return await loop.run_in_executor(None, self.recv, output, timeout)
+        return await loop.run_in_executor(None, self.recv, output, timeout, device)
 
-    def abatches(self, output, poll=0.25):
-        """Async iterator over the batches of ``output``; ends when the
-        engine is closed."""
-        return _AsyncBatches(self, output, poll)
+    def abatches(self, output, poll=0.25, device=None):
+        """Async iterator over the batches of ``output`` (only those made on
+        ``device`` if given); ends when the engine is closed."""
+        return _AsyncBatches(self, output, poll, device)
 
 
 class _AsyncBatches:
-    def __init__(self, engine, output, poll):
-        self._engine, self._output, self._poll = engine, output, poll
+    def __init__(self, engine, output, poll, device=None):
+        self._engine, self._output, self._poll, self._device = engine, output, poll, device
 
     def __aiter__(self):
         return self
@@ -64,7 +64,9 @@ class _AsyncBatches:
         loop = _asyncio.get_running_loop()
         while True:
             try:
-                return await loop.run_in_executor(None, self._engine.recv, self._output, self._poll)
+                return await loop.run_in_executor(
+                    None, self._engine.recv, self._output, self._poll, self._device
+                )
             except TimeoutError:
                 continue
             except RuntimeError as e:

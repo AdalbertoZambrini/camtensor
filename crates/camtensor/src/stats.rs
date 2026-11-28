@@ -13,6 +13,8 @@ pub struct StreamStats {
     pub id: String,
     /// URL with credentials removed.
     pub url: String,
+    /// Device the stream runs on (multi-GPU placement).
+    pub device: String,
     /// `true` while the RTSP session is playing.
     pub connected: bool,
     /// Codec once known.
@@ -54,8 +56,10 @@ pub struct StreamStats {
 /// Statistics of the whole engine.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct EngineStats {
-    /// Device in use.
+    /// Primary device (first of `devices`).
     pub device: String,
+    /// Every device of the engine.
+    pub devices: Vec<String>,
     /// Per-stream statistics.
     pub streams: Vec<StreamStats>,
     /// Per-output statistics.
@@ -168,6 +172,7 @@ mod tests {
     fn prometheus_output() {
         let s = EngineStats {
             device: "cpu".into(),
+            devices: vec!["cpu".into()],
             streams: vec![StreamStats { id: "cam\"1".into(), packets: 5, ..Default::default() }],
             outputs: [("det".to_string(), OutputStats { images: 3, ..Default::default() })].into(),
         };

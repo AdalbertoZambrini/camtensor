@@ -11,16 +11,18 @@ use camtensor_core::{
 };
 
 use crate::device::Backend;
-use crate::output::Output;
+use crate::output::{Output, OutputGroup, Signal};
 use crate::stats::EngineStats;
-use crate::stream::{self, StreamHandle};
+use crate::stream::{self, Loads, Placement, StreamHandle};
 use crate::tensor::{Batch, Tensor};
 
 pub(crate) struct Inner {
     pub(crate) cfg: Mutex<EngineConfig>,
-    pub(crate) backend: Backend,
+    /// One backend per engine device (multi-GPU); never empty.
+    pub(crate) backends: Vec<Backend>,
+    loads: Arc<Loads>,
     rt: tokio::runtime::Runtime,
-    outputs: RwLock<BTreeMap<String, Arc<Output>>>,
+    outputs: RwLock<BTreeMap<String, Arc<OutputGroup>>>,
     streams: Mutex<HashMap<String, StreamHandle>>,
     discovery: Mutex<Option<crate::mediamtx::Discovery>>,
 }
@@ -60,18 +62,20 @@ impl Engine {
     /// discovery declared in `cfg`.
     pub fn new(cfg: EngineConfig) -> Result<Self> {
         cfg.validate()?;
-        let backend = Backend::resolve(cfg.device)?;
+        let backends = resolve_backends(&cfg)?;
         let rt = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(2)
             .thread_name("ct-io")
             .enable_all()
             .build()
             .map_err(Error::Io)?;
-        tracing::info!(device = %backend.device(), "camtensor engine starting");
+        let names: Vec<String> = backends.iter().map(|b| b.device().to_string()).collect();
+        tracing::info!(devices = ?names, "camtensor engine starting");
         let engine = Engine {
             inner: Arc::new(Inner {
                 cfg: Mutex::new(EngineConfig { streams: Vec::new(), ..cfg.clone() }),
-                backend,
+                loads: Arc::new(Loads::new(backends.len())),
+                backends,
                 rt,
                 outputs: RwLock::new(BTreeMap::new()),
                 streams: Mutex::new(HashMap::new()),
@@ -96,26 +100,46 @@ impl Engine {
         Self::new(EngineConfig::from_path(path)?)
     }
 
-    /// Device used for decoding and, by default, for output tensors.
+    /// Primary device (the first of [`Engine::devices`]).
     pub fn device(&self) -> Device {
-        self.inner.backend.device()
+        self.inner.backends[0].device()
     }
 
-    /// Adds a named output. Fails if the name exists.
+    /// Every device of the engine (several with multi-GPU).
+    pub fn devices(&self) -> Vec<Device> {
+        self.inner.backends.iter().map(Backend::device).collect()
+    }
+
+    fn backend_index(&self, device: Device) -> Option<usize> {
+        self.inner.backends.iter().position(|b| b.device() == device)
+    }
+
+    /// Backend owning `device` memory, or the primary one.
+    fn backend_for(&self, device: Device) -> &Backend {
+        self.backend_index(device).map_or(&self.inner.backends[0], |i| &self.inner.backends[i])
+    }
+
+    /// Adds a named output (one shard per engine device). Fails if the name
+    /// exists.
     pub fn add_output(&self, name: &str, cfg: OutputConfig) -> Result<()> {
-        let device = self.inner.backend.output_device(cfg.device)?;
         let mut outputs = self.inner.outputs.write();
         if outputs.contains_key(name) {
             return Err(Error::config(format!("output '{name}' already exists")));
         }
-        let out = Output::new(
-            name,
-            cfg.clone(),
-            device,
-            self.inner.backend.alloc_fn(device),
-            self.inner.backend.zero_fn(device),
-        )?;
-        outputs.insert(name.to_string(), out);
+        let signal = Arc::new(Signal::default());
+        let mut shards = Vec::with_capacity(self.inner.backends.len());
+        for b in &self.inner.backends {
+            let device = b.output_device(cfg.device)?;
+            shards.push(Output::new(
+                name,
+                cfg.clone(),
+                device,
+                b.alloc_fn(device),
+                b.zero_fn(device),
+                Some(signal.clone()),
+            )?);
+        }
+        outputs.insert(name.to_string(), Arc::new(OutputGroup::new(cfg.clone(), shards, signal)));
         self.inner.cfg.lock().outputs.insert(name.to_string(), cfg);
         Ok(())
     }
@@ -125,7 +149,7 @@ impl Engine {
         self.inner.outputs.read().keys().cloned().collect()
     }
 
-    fn output(&self, name: &str) -> Result<Arc<Output>> {
+    fn output(&self, name: &str) -> Result<Arc<OutputGroup>> {
         self.inner
             .outputs
             .read()
@@ -139,26 +163,39 @@ impl Engine {
         Ok(self.output(name)?.cfg.clone())
     }
 
-    /// Device of an output's tensors.
+    /// Device of an output's tensors (of its first shard with multi-GPU).
     pub fn output_device(&self, name: &str) -> Result<Device> {
-        Ok(self.output(name)?.device)
+        Ok(self.output(name)?.shards[0].device)
     }
 
     /// Starts consuming a stream. Fails if the id exists or references an
     /// unknown output.
     pub fn add_stream(&self, cfg: StreamConfig) -> Result<()> {
         cfg.validate()?;
-        let outputs = cfg.outputs.iter().map(|o| self.output(o)).collect::<Result<Vec<_>>>()?;
+        let groups = cfg.outputs.iter().map(|o| self.output(o)).collect::<Result<Vec<_>>>()?;
         let mut streams = self.inner.streams.lock();
         if streams.contains_key(&cfg.id) {
             return Err(Error::config(format!("stream '{}' already exists", cfg.id)));
         }
+        // Placement: pinned device, or the least loaded one (sticky).
+        let index = match cfg.device {
+            Some(d) => self.backend_index(d).ok_or_else(|| {
+                Error::config(format!(
+                    "stream '{}' is pinned to {d}, which is not one of the engine devices {:?}",
+                    cfg.id,
+                    self.devices().iter().map(ToString::to_string).collect::<Vec<_>>()
+                ))
+            })?,
+            None => self.inner.loads.least_loaded(),
+        };
+        let outputs = groups.iter().map(|g| g.shards[index].clone()).collect();
         let default_decoder = self.inner.cfg.lock().decoder;
         let handle = stream::spawn(
             cfg.clone(),
             default_decoder,
             outputs,
-            self.inner.backend.clone(),
+            self.inner.backends[index].clone(),
+            Placement { index, loads: self.inner.loads.clone() },
             self.inner.rt.handle(),
         )?;
         streams.insert(cfg.id.clone(), handle);
@@ -205,12 +242,24 @@ impl Engine {
         Ok(())
     }
 
-    /// Waits for the next batch of `output` (`None` = wait forever).
+    /// Waits for the next batch of `output` (`None` = wait forever), from
+    /// any device. The batch tensor's device tells which one.
     ///
     /// Each output is a single queue: concurrent receivers share (split)
     /// its batches.
     pub fn recv(&self, output: &str, timeout: Option<Duration>) -> Result<Batch> {
         self.output(output)?.recv(timeout)
+    }
+
+    /// Waits for the next batch of `output` produced on `device` (one
+    /// consumer per GPU in multi-GPU setups).
+    pub fn recv_on(
+        &self,
+        output: &str,
+        device: Device,
+        timeout: Option<Duration>,
+    ) -> Result<Batch> {
+        self.output(output)?.shard_for(device)?.recv(timeout)
     }
 
     /// Returns the next batch if one is ready.
@@ -221,7 +270,14 @@ impl Engine {
     /// Blocking iterator over the batches of `output`; ends when the engine
     /// shuts down.
     pub fn subscribe(&self, output: &str) -> Result<Subscription> {
-        Ok(Subscription { out: self.output(output)? })
+        Ok(Subscription { group: self.output(output)?, device: None })
+    }
+
+    /// Like [`Engine::subscribe`], limited to batches produced on `device`.
+    pub fn subscribe_on(&self, output: &str, device: Device) -> Result<Subscription> {
+        let group = self.output(output)?;
+        group.shard_for(device)?;
+        Ok(Subscription { group, device: Some(device) })
     }
 
     /// Extracts regions of `frame` (from a batch item kept with
@@ -240,14 +296,22 @@ impl Engine {
         if rois.is_empty() {
             return Err(Error::config("crop: no regions given"));
         }
-        let device = self.inner.backend.output_device(device)?;
+        // Work on the device that holds the frame (multi-GPU).
+        let home = match &frame.data {
+            camtensor_core::FrameData::Device(m) => Device::Cuda(m.device_ordinal()),
+            // Host frames stay on the CPU when the engine has a CPU device;
+            // otherwise the primary device (CPU-decoded frames on a GPU engine).
+            camtensor_core::FrameData::Host(_) => device.unwrap_or(Device::Cpu),
+        };
+        let backend = self.backend_for(home);
+        let device = backend.output_device(device)?;
         let plans = rois
             .iter()
             .map(|r| camtensor_preprocess::plan_roi(r, spec).map(|p| p.sampling))
             .collect::<Result<Vec<_>>>()?;
-        let mut ctx = self.inner.backend.worker()?;
+        let mut ctx = backend.worker()?;
         let src = ctx.frame_for(frame, device)?;
-        ctx.crop(&self.inner.backend, &src, &plans, spec, device)
+        ctx.crop(backend, &src, &plans, spec, device)
     }
 
     /// Encodes a kept frame (or a region of it) as a JPEG image.
@@ -309,7 +373,7 @@ impl Engine {
             dst.copy_from_slice(b);
             return Ok(());
         }
-        let mut ctx = self.inner.backend.worker()?;
+        let mut ctx = self.backend_for(tensor.device()).worker()?;
         ctx.download(tensor.data_ptr(), dst)
     }
 
@@ -330,7 +394,12 @@ impl Engine {
         };
         let outputs =
             self.inner.outputs.read().iter().map(|(k, o)| (k.clone(), o.stats())).collect();
-        EngineStats { device: self.device().to_string(), streams, outputs }
+        EngineStats {
+            device: self.device().to_string(),
+            devices: self.devices().iter().map(ToString::to_string).collect(),
+            streams,
+            outputs,
+        }
     }
 
     /// Current configuration (outputs, running streams, discovery).
@@ -343,12 +412,14 @@ impl Engine {
         if let Some(d) = self.inner.discovery.lock().take() {
             d.stop();
         }
-        let streams: Vec<StreamHandle> =
-            self.inner.streams.lock().drain().map(|(_, h)| h).collect();
-        drop(streams);
+        // Close outputs first: writers blocked on a full output (`block`
+        // backpressure) wake up, so stopping the streams cannot deadlock.
         for o in self.inner.outputs.read().values() {
             o.close();
         }
+        let streams: Vec<StreamHandle> =
+            self.inner.streams.lock().drain().map(|(_, h)| h).collect();
+        drop(streams);
     }
 
     pub(crate) fn runtime(&self) -> &tokio::runtime::Handle {
@@ -358,10 +429,10 @@ impl Engine {
 
 impl Drop for Inner {
     fn drop(&mut self) {
-        self.streams.get_mut().clear();
         for o in self.outputs.get_mut().values() {
             o.close();
         }
+        self.streams.get_mut().clear();
     }
 }
 
@@ -385,21 +456,75 @@ impl Default for SnapshotOptions {
 }
 
 /// Blocking iterator over an output's batches.
-#[derive(Debug)]
 pub struct Subscription {
-    out: Arc<Output>,
+    group: Arc<OutputGroup>,
+    device: Option<Device>,
+}
+
+impl std::fmt::Debug for Subscription {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Subscription").field("device", &self.device).finish_non_exhaustive()
+    }
 }
 
 impl Subscription {
     /// Waits for the next batch with a timeout.
     pub fn recv_timeout(&self, timeout: Duration) -> Result<Batch> {
-        self.out.recv(Some(timeout))
+        self.recv(Some(timeout))
+    }
+
+    fn recv(&self, timeout: Option<Duration>) -> Result<Batch> {
+        match self.device {
+            Some(d) => self.group.shard_for(d)?.recv(timeout),
+            None => self.group.recv(timeout),
+        }
     }
 }
 
 impl Iterator for Subscription {
     type Item = Batch;
     fn next(&mut self) -> Option<Batch> {
-        self.out.recv(None).ok()
+        self.recv(None).ok()
     }
+}
+
+/// Expands the configured device list into one backend per distinct device.
+fn resolve_backends(cfg: &EngineConfig) -> Result<Vec<Backend>> {
+    let list = if cfg.devices.is_empty() { vec![cfg.device] } else { cfg.devices.clone() };
+    let mut devices: Vec<Device> = Vec::new();
+    for d in list {
+        let expanded = match d {
+            // `auto` in a device list: every CUDA device (the CPU if none).
+            Device::Auto if !cfg.devices.is_empty() => all_cuda_devices(),
+            other => vec![other],
+        };
+        for e in expanded {
+            if !devices.contains(&e) {
+                devices.push(e);
+            }
+        }
+    }
+    let mut backends: Vec<Backend> = Vec::new();
+    for d in devices {
+        let b = Backend::resolve(d)?;
+        // Distinct requested devices may resolve to the same one (auto -> cuda:0).
+        if !backends.iter().any(|x| x.device() == b.device()) {
+            backends.push(b);
+        }
+    }
+    if backends.is_empty() {
+        return Err(Error::config("no device configured"));
+    }
+    Ok(backends)
+}
+
+fn all_cuda_devices() -> Vec<Device> {
+    #[cfg(feature = "cuda")]
+    {
+        let n = if camtensor_cuda::is_available() { camtensor_cuda::device_count() } else { 0 };
+        if n > 0 {
+            return (0..n as u32).map(Device::Cuda).collect();
+        }
+    }
+    vec![Device::Cpu]
 }

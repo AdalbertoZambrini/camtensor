@@ -16,7 +16,7 @@ sources need FFmpeg shared libraries; see the README.
 
 | Name | Description |
 |---|---|
-| `ct.Engine(config=None, device=None)` | Creates an engine. `config` is `None`, a dict, a YAML/JSON string or a path to a YAML/JSON file. `device` is `"auto"`, `"cpu"` or `"cuda:N"`. |
+| `ct.Engine(config=None, device=None, devices=None)` | Creates an engine. `config` is `None`, a dict, a YAML/JSON string or a path to a YAML/JSON file. `device` is `"auto"`, `"cpu"` or `"cuda:N"`. `devices` (e.g. `["auto"]` for every GPU, or `["cuda:0", "cuda:1"]`) enables multi-GPU. |
 | `ct.capabilities()` | `{"cuda": bool, "ffmpeg": bool, "jpeg": bool}` |
 | `ct.list_devices(backend=None)` | Capture devices as `[(name, description)]`. On Windows, use `"device:" + description`. |
 | `ct.KEYPOINT_TEMPLATE_112` | Default 5-keypoint layout for aligned 112×112 crops |
@@ -58,6 +58,7 @@ eng.add_stream(
     username=None, password=None,
     region=None,            # (x, y, w, h) normalised 0..1
     realtime=True, loop=True,   # file sources
+    device=None,            # pin to one engine device (multi-GPU); default: least loaded
 )
 eng.remove_stream(id)
 eng.force_active(id, seconds)   # bypass gating, e.g. while something is tracked
@@ -76,6 +77,8 @@ through the config dict/YAML (`capture:` on the stream).
 
 ```python
 batch = eng.recv("detector", timeout=None)      # blocking, GIL released
+batch = eng.recv("detector", device="cuda:1")   # multi-GPU: only that GPU's batches
+for batch in eng.batches("detector", device="cuda:1"): ...
 batch = eng.try_recv("detector")                # None if nothing is ready
 for batch in eng.batches("detector"): ...       # blocking iterator
 async for batch in eng.abatches("detector"): ...   # asyncio
@@ -100,7 +103,7 @@ jpeg = eng.snapshot(item.frame, region=(x, y, w, h), width=640, quality=90)  # b
 
 ### Introspection
 
-`eng.device`, `eng.outputs`, `eng.streams`, `eng.stats()` (dict),
+`eng.device`, `eng.devices`, `eng.outputs`, `eng.streams`, `eng.stats()` (dict),
 `eng.prometheus()` (text), `eng.config()` (dict), `eng.close()`. The engine
 is also a context manager.
 
@@ -112,6 +115,15 @@ is also a context manager.
 | `Item` | `stream_id`, `valid`, `seq`, `pts`, `keyframe`, `src_width`, `src_height`, `transform`, `capture_time_ns`, `recv_time_ns`, `ready_time_ns`, `latency_ms`, `dropped_since_last`, `frame`, `to_source(x, y)`, `box_to_source(box)`, `boxes_to_source(boxes)` |
 | `Tensor` | `shape`, `dtype`, `device`, `data_ptr`, `nbytes`, `__dlpack__`, `__dlpack_device__`, `__cuda_array_interface__` (CUDA), `__array_interface__` (CPU), `numpy()` |
 | `Frame` | `width`, `height`, `format`, `device`, `pts` (pass to `crop` / `snapshot`) |
+
+## Free-threaded Python
+
+On free-threaded CPython (3.14t, 3.15t) camtensor keeps the GIL disabled
+(`sys._is_gil_enabled()` stays `False` after import). Batches, items,
+frames and tensors are immutable and safe to share between threads, and the
+engine can be used from any number of threads at once. These builds need the
+version-specific wheels (`cp314t`, `cp315t`); the `abi3` wheel covers
+regular builds from 3.9 on.
 
 ## Errors
 
