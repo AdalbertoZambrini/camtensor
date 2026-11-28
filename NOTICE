@@ -1,0 +1,14 @@
+camtensor
+Copyright 2026 Adalberto Zambrini
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This software includes third-party components:
+
+- jpeg-encoder (MIT OR Apache-2.0, with parts under the IJG license):
+  this software is based in part on the work of the Independent JPEG Group.
+- Kernel and parser layouts follow the MIT-licensed FFmpeg nv-codec-headers.
+- At runtime camtensor may load NVIDIA driver libraries (nvcuda, nvcuvid) and
+  FFmpeg libraries (libavcodec, libavformat, libavutil) installed on the host.
+  They are not distributed with camtensor; FFmpeg is LGPL/GPL depending on
+  its build configuration.

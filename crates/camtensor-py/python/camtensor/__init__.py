@@ -16,17 +16,61 @@ GPU or in host memory. Tensors are exported zero-copy via DLPack::
             print(item.stream_id, item.latency_ms)
 """
 
+import asyncio as _asyncio
+
 from ._camtensor import (  # noqa: F401
     Batch,
     BatchIterator,
-    Engine,
     Frame,
     Item,
     Tensor,
     __version__,
     capabilities,
+    list_devices,
     version,
 )
+from ._camtensor import Engine as _NativeEngine
+
+
+class Engine(_NativeEngine):
+    """Camera streams in, batches of tensors out. See ``help(camtensor)``.
+
+    Adds asyncio support on top of the native engine::
+
+        async for batch in eng.abatches("detector"):
+            ...
+    """
+
+    async def arecv(self, output, timeout=None):
+        """Awaitable :meth:`recv`: waits in a worker thread (the GIL is
+        released while waiting), so the event loop stays responsive."""
+        loop = _asyncio.get_running_loop()
+        return await loop.run_in_executor(None, self.recv, output, timeout)
+
+    def abatches(self, output, poll=0.25):
+        """Async iterator over the batches of ``output``; ends when the
+        engine is closed."""
+        return _AsyncBatches(self, output, poll)
+
+
+class _AsyncBatches:
+    def __init__(self, engine, output, poll):
+        self._engine, self._output, self._poll = engine, output, poll
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        loop = _asyncio.get_running_loop()
+        while True:
+            try:
+                return await loop.run_in_executor(None, self._engine.recv, self._output, self._poll)
+            except TimeoutError:
+                continue
+            except RuntimeError as e:
+                if "closed" in str(e):
+                    raise StopAsyncIteration from None
+                raise
 
 #: Default 5-keypoint reference layout (112x112) used by keypoint-aligned crops.
 KEYPOINT_TEMPLATE_112 = (
@@ -47,5 +91,6 @@ __all__ = [
     "Tensor",
     "__version__",
     "capabilities",
+    "list_devices",
     "version",
 ]

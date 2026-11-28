@@ -152,3 +152,72 @@ def test_file_source_region_and_snapshot(tmp_path):
             eng.snapshot(item.frame, region=(5000, 0, 10, 10))
         with pytest.raises(ValueError):
             eng.add_stream("bad", "file:x.mp4", ["o"], region=(0.8, 0, 0.5, 1))
+
+
+@pytest.mark.skipif(not FFMPEG, reason="ffmpeg not available")
+def test_async_iterator(tmp_path):
+    import asyncio
+
+    clip = tmp_path / "async.mkv"
+    subprocess.run(
+        [FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
+         "testsrc2=size=320x240:rate=25", "-frames:v", "20", "-c:v", "mjpeg", "-q:v", "5",
+         "-pix_fmt", "yuvj420p", str(clip)],
+        check=True,
+    )
+
+    async def main():
+        eng = ct.Engine(device="cpu")
+        eng.add_output("o", 64, 64, dtype="u8", backpressure="block")
+        # Real-time playback (~0.8 s) so the event loop has time to run.
+        eng.add_stream("f", f"file:{clip}", ["o"], realtime=True, loop=False)
+        first = await eng.arecv("o", timeout=10)
+        n = first.valid_count
+        ticks = 0
+
+        async def ticker():
+            nonlocal ticks
+            while True:
+                await asyncio.sleep(0.01)
+                ticks += 1
+
+        t = asyncio.create_task(ticker())
+        async for b in eng.abatches("o"):
+            n += b.valid_count
+            if n >= 20:
+                break
+        t.cancel()
+        eng.close()
+        # The loop kept running while waiting for batches.
+        return n, ticks
+
+    n, ticks = asyncio.run(main())
+    assert n == 20
+    assert ticks > 0
+
+
+def test_list_devices():
+    try:
+        devices = ct.list_devices()
+    except RuntimeError:
+        pytest.skip("FFmpeg (libavdevice) not available")
+    assert isinstance(devices, list)
+    for name, desc in devices:
+        assert isinstance(name, str) and isinstance(desc, str)
+
+
+def test_webcam_if_present():
+    try:
+        devices = ct.list_devices()
+    except RuntimeError:
+        pytest.skip("libavdevice not available")
+    if not devices:
+        pytest.skip("no capture device")
+    name, desc = devices[0]
+    url = "device:" + (desc if os.name == "nt" and desc else name)
+    with ct.Engine(device="auto") as eng:
+        eng.add_output("o", 160, 160, dtype="u8", keep_frame=True)
+        eng.add_stream("cam", url, ["o"])
+        b = eng.recv("o", timeout=20)
+        assert b[0].src_width > 0
+        assert eng.snapshot(b[0].frame)[:2] == b"\xff\xd8"

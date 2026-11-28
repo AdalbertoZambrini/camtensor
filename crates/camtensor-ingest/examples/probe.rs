@@ -74,6 +74,7 @@ async fn main() {
                 params = Some(p);
             }
             SourceEvent::Disconnected { reason } => println!("disconnected: {reason}"),
+            SourceEvent::Frame(_) => {}
             SourceEvent::Packet(p) => {
                 first_pts.get_or_insert(p.pts);
                 last_pts = p.pts;

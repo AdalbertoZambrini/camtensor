@@ -107,6 +107,17 @@ impl From<&StreamConfig> for SourceConfig {
     }
 }
 
+/// A decoded frame produced directly by a source.
+#[derive(Debug, Clone)]
+pub struct RawFrame {
+    /// The picture (host memory).
+    pub frame: camtensor_core::Frame,
+    /// Monotonic per-stream sequence number.
+    pub seq: u64,
+    /// Wall-clock time (ns since Unix epoch) when it was captured/received.
+    pub recv_time_ns: u64,
+}
+
 /// Events produced by a source.
 #[derive(Debug, Clone)]
 pub enum SourceEvent {
@@ -118,6 +129,8 @@ pub enum SourceEvent {
     ParamsChanged(StreamParams),
     /// One access unit.
     Packet(EncodedPacket),
+    /// An already decoded frame (capture devices delivering raw video).
+    Frame(RawFrame),
     /// The session failed; a reconnect follows.
     Disconnected {
         /// Human-readable cause.

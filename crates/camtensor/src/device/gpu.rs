@@ -2,9 +2,11 @@
 
 use std::sync::Arc;
 
+use crate::output::Fence;
 use camtensor_core::{Affine2, Device, Error, Frame, FrameData, Result, TensorSpec};
 use camtensor_cuda::{
-    BufferPool, CudaDevice, CudaStream, DeviceBuffer, Preprocessor, SampleItem, SourceImage,
+    BufferPool, CudaDevice, CudaEvent, CudaStream, DeviceBuffer, Preprocessor, SampleItem,
+    SourceImage,
 };
 
 use crate::tensor::TensorStorage;
@@ -32,6 +34,19 @@ impl Gpu {
 
     pub(crate) fn alloc_tensor(&self, len: usize) -> Result<TensorStorage> {
         Ok(TensorStorage::Device(Box::new(DeviceBuffer::zeroed(&self.device, len.max(1))?)))
+    }
+
+    /// Page-locked host memory for CPU outputs of a CUDA engine: device to
+    /// host copies then run as direct DMA instead of staged pageable copies.
+    pub(crate) fn alloc_pinned(&self, len: usize) -> Result<TensorStorage> {
+        let mut buf = camtensor_cuda::PinnedHostBuffer::new(&self.device, len.max(1))?;
+        buf.as_mut_slice().fill(0);
+        let ptr = buf.as_mut_ptr();
+        // SAFETY: the pinned allocation is page aligned (>= HOST_ALIGN), was
+        // just zeroed, stays alive inside the boxed owner and is only
+        // accessed through the returned buffer.
+        let host = unsafe { crate::tensor::AlignedBuf::from_owner(ptr, len, Box::new(buf)) };
+        Ok(TensorStorage::Host(host))
     }
 
     pub(crate) fn memset_zero(&self, addr: u64, len: usize) -> Result<()> {
@@ -85,7 +100,7 @@ impl Worker {
         items: &[(Affine2, u64)],
         spec: &TensorSpec,
         out_device: Device,
-    ) -> Result<()> {
+    ) -> Result<Option<Fence>> {
         let frame = match &frame.data {
             FrameData::Host(_) => self.upload_frame(frame)?,
             FrameData::Device(m) if m.device_ordinal() != self.device.ordinal() => {
@@ -103,9 +118,20 @@ impl Worker {
                     .collect();
                 // SAFETY: each destination is a distinct, reserved slot of
                 // `img` bytes inside a live device buffer on this device; the
-                // source frame is kept alive by `frame` until we synchronise.
+                // source frame is kept alive by the returned fence until the
+                // kernel has finished.
                 unsafe { self.pre.preprocess(&self.stream, &src, &samples, spec)? };
-                self.stream.synchronize()
+                // No host wait here: record an event and let the consumer wait
+                // once per batch. The fence owns the source frame so its
+                // buffer cannot be recycled while the kernel reads it.
+                let event = CudaEvent::new(&self.device, false)?;
+                event.record(&self.stream)?;
+                Ok(Some(Box::new(move || {
+                    if let Err(e) = event.synchronize() {
+                        tracing::error!("cuda event wait failed: {e}");
+                    }
+                    drop(frame);
+                })))
             }
             _ => {
                 let need = img * items.len();
@@ -127,7 +153,9 @@ impl Worker {
                         )?
                     };
                 }
-                self.stream.synchronize()
+                // Host destinations and the shared scratch buffer: wait here.
+                self.stream.synchronize()?;
+                Ok(None)
             }
         }
     }

@@ -94,7 +94,7 @@ impl ParamState {
         let converted = match codec {
             Codec::H264 => annexb::avcc_config_to_annexb(extra_data).ok(),
             Codec::H265 => annexb::hvcc_config_to_annexb(extra_data).ok(),
-            Codec::Mjpeg => None,
+            Codec::Mjpeg | Codec::RawVideo => None,
         };
         if let Some((ps, length_size)) = converted {
             st.params.extradata = Bytes::from(ps);
@@ -133,7 +133,7 @@ impl ParamState {
     /// MJPEG.
     pub fn payload(&self, keyframe: bool, data: Vec<u8>) -> Result<Bytes, String> {
         match self.params.codec {
-            Codec::Mjpeg => Ok(Bytes::from(data)),
+            Codec::Mjpeg | Codec::RawVideo => Ok(Bytes::from(data)),
             Codec::H264 | Codec::H265 => {
                 let extra = if keyframe { self.params.extradata.len() } else { 0 };
                 let mut out = Vec::with_capacity(extra + data.len() + 16);

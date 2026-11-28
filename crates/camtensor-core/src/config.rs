@@ -337,6 +337,23 @@ impl Default for PlaybackConfig {
     }
 }
 
+/// Capture options for `device:` sources (webcams, capture cards).
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct CaptureConfig {
+    /// libavdevice backend: `dshow` (Windows), `v4l2` (Linux),
+    /// `avfoundation` (macOS). Defaults to the platform's.
+    pub backend: Option<String>,
+    /// Requested width.
+    pub width: Option<u32>,
+    /// Requested height.
+    pub height: Option<u32>,
+    /// Requested frame rate.
+    pub fps: Option<f64>,
+    /// Requested format: `mjpeg`, `yuyv422`, `nv12`, ... (device dependent).
+    pub format: Option<String>,
+}
+
 /// Where a stream comes from.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SourceKind {
@@ -344,6 +361,8 @@ pub enum SourceKind {
     Rtsp,
     /// Local video file (MP4, MKV, MOV, raw H.264/H.265, MJPEG...).
     File(std::path::PathBuf),
+    /// Capture device (webcam), e.g. `USB Camera` or `/dev/video0`.
+    Device(String),
 }
 
 /// A camera (RTSP) or video-file source.
@@ -373,6 +392,8 @@ pub struct StreamConfig {
     pub region: Option<Region>,
     /// Playback options for `file:` sources.
     pub playback: PlaybackConfig,
+    /// Capture options for `device:` sources.
+    pub capture: CaptureConfig,
 }
 
 impl Default for StreamConfig {
@@ -389,6 +410,7 @@ impl Default for StreamConfig {
             max_reconnect_ms: 10_000,
             region: None,
             playback: PlaybackConfig::default(),
+            capture: CaptureConfig::default(),
         }
     }
 }
@@ -427,8 +449,15 @@ impl StreamConfig {
             }
             return Ok(SourceKind::File(path.replace("%20", " ").into()));
         }
+        if lower.starts_with("device:") {
+            let name = self.url[7..].trim();
+            if name.is_empty() {
+                return Err(Error::config(format!("stream '{}': empty device name", self.id)));
+            }
+            return Ok(SourceKind::Device(name.to_string()));
+        }
         Err(Error::config(format!(
-            "stream '{}': url must start with rtsp://, rtsps:// or file:",
+            "stream '{}': url must start with rtsp://, rtsps://, file: or device:",
             self.id
         )))
     }
@@ -584,6 +613,8 @@ streams:
         assert_eq!(f("file:///D:/v/a%20b.mkv"), SourceKind::File("D:/v/a b.mkv".into()));
         assert_eq!(f("file:///home/u/a.mp4"), SourceKind::File("/home/u/a.mp4".into()));
         assert_eq!(f("rtsp://cam/1"), SourceKind::Rtsp);
+        assert_eq!(f("device:USB Camera"), SourceKind::Device("USB Camera".into()));
+        assert_eq!(f("device:/dev/video0"), SourceKind::Device("/dev/video0".into()));
         let bad = "outputs: {a: {}}
 streams: [{id: s, url: 'rtsp://x', outputs: [a], region: {x: 0.8, y: 0, w: 0.5, h: 1}}]";
         assert!(EngineConfig::from_yaml(bad).is_err());
