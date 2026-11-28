@@ -197,7 +197,10 @@ def test_async_iterator(tmp_path):
 
 
 def test_list_devices():
-    devices = ct.list_devices()
+    try:
+        devices = ct.list_devices()
+    except RuntimeError:
+        pytest.skip("FFmpeg (libavdevice) not available")
     assert isinstance(devices, list)
     for name, desc in devices:
         assert isinstance(name, str) and isinstance(desc, str)
